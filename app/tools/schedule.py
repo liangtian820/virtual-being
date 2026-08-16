@@ -584,6 +584,50 @@ class ScheduleStore:
         return ([{"id": r[0], "time": r[1], "event": r[2],
                   "done": bool(r[3]), "repeat": r[4]} for r in rows], updated)
 
+    # ---------------- M5.2（WO-20260816-24）：按 id 操作（Web 面板：完成/删除按钮） ----------------
+
+    def get_by_id(self, item_id: int) -> Optional[Dict[str, object]]:
+        """按 id 读取一条日程；不存在返回 None。"""
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT id, date, time, event, done, repeat FROM schedules WHERE id = ?", (item_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return {"id": row[0], "date": row[1], "time": row[2], "event": row[3],
+                "done": bool(row[4]), "repeat": row[5]}
+
+    def mark_done_by_id(self, item_id: int) -> Tuple[Optional[Dict[str, object]], int]:
+        """按 id 标记完成，返回 (条目, 实际更新条数)；条目不存在返回 (None, 0)。"""
+        with closing(self._connect()) as conn:
+            with conn:
+                row = conn.execute(
+                    "SELECT id, date, time, event, done, repeat FROM schedules WHERE id = ?",
+                    (item_id,),
+                ).fetchone()
+                cur = conn.execute(
+                    "UPDATE schedules SET done = 1 WHERE id = ? AND done = 0", (item_id,)
+                )
+                updated = cur.rowcount
+        if row is None:
+            return None, 0
+        return ({"id": row[0], "date": row[1], "time": row[2], "event": row[3],
+                 "done": bool(row[4]), "repeat": row[5]}, updated)
+
+    def delete_by_id(self, item_id: int) -> Optional[Dict[str, object]]:
+        """按 id 删除，返回被删除条目；不存在返回 None。"""
+        with closing(self._connect()) as conn:
+            with conn:
+                row = conn.execute(
+                    "SELECT id, date, time, event, done, repeat FROM schedules WHERE id = ?",
+                    (item_id,),
+                ).fetchone()
+                conn.execute("DELETE FROM schedules WHERE id = ?", (item_id,))
+        if row is None:
+            return None
+        return {"id": row[0], "date": row[1], "time": row[2], "event": row[3],
+                "done": bool(row[4]), "repeat": row[5]}
+
 
 # ---------------------------------------------------------------- 主入口
 
@@ -652,6 +696,34 @@ def mark_done(text: str, db_path: str = DB_PATH,
     if not rows:
         return {"updated": 0, "entries": [], "error": "没有找到匹配的提醒"}
     return {"updated": updated, "entries": rows, "error": None}
+
+
+# ---------------------------------------------------------------- M5.2 按 id 操作（Web 面板）
+
+def mark_done_by_id(item_id: int, db_path: str = DB_PATH) -> Dict[str, object]:
+    """按 id 标记日程完成（Web 日程面板的『完成』按钮）：{"updated", "entry", "error"}。
+
+    - updated: 本次从未完成改为完成的条数（0 表示已完成或不存在）；
+    - entry: 目标条目（不存在为 None）。
+    """
+    try:
+        entry, updated = ScheduleStore(db_path).mark_done_by_id(item_id)
+    except Exception as exc:  # 落库失败：降级为结构化错误，不抛异常
+        return {"updated": 0, "entry": None, "error": f"标记完成失败：{exc}"}
+    if entry is None:
+        return {"updated": 0, "entry": None, "error": f"没有找到 id={item_id} 的日程"}
+    return {"updated": updated, "entry": entry, "error": None}
+
+
+def delete_by_id(item_id: int, db_path: str = DB_PATH) -> Dict[str, object]:
+    """按 id 删除日程（Web 日程面板的『删除』按钮）：{"deleted", "entry", "error"}。"""
+    try:
+        entry = ScheduleStore(db_path).delete_by_id(item_id)
+    except Exception as exc:  # 落库失败：降级为结构化错误，不抛异常
+        return {"deleted": False, "entry": None, "error": f"删除失败：{exc}"}
+    if entry is None:
+        return {"deleted": False, "entry": None, "error": f"没有找到 id={item_id} 的日程"}
+    return {"deleted": True, "entry": entry, "error": None}
 
 
 def list_on(day: str, db_path: str = DB_PATH) -> Dict[str, object]:

@@ -16,6 +16,9 @@
 - ✅ M5 形象：Web 聊天界面（程序化原创立绘 + 表情状态 + 语音控件）
 - ✅ M5.1 意图路由 + 记忆问答（WO-20260816-22）：人格对话激活规划/日程能力 Agent（`is_planning_query`/`is_schedule_query`）、
   记忆问答走向量检索（`retrieve_fused`）、记忆 API（`GET/DELETE /memory`）、中文口语禁夹英文
+- ✅ M5.2 Web 能力面板（WO-20260816-24）：日程面板（今日/明日列表 + 新增/完成/删除）、规划面板（已保存计划列表/删除 +
+  对话内步骤卡片）、记忆面板（查看/清空带确认）；新 API `GET/POST /schedule`、`POST /schedule/{id}/done`、
+  `DELETE /schedule/{id}`、`GET/POST /plans`、`DELETE /plans/{id}`
 - 🚧 M6 打磨展示：README 架构图与演示脚本（进行中）、角色一致性评测（`docs/consistency_testset.md`）、GitHub 仓库准备
 
 ## 功能清单
@@ -31,6 +34,7 @@
 | 专属记忆 | M3/M3.5 | SQLite 跨会话长期记忆（fact/topic 抽取、去重、线程安全）+ 向量语义检索与关键词融合 | `app/memory/long_term_memory.py`、`app/memory/embeddings.py` |
 | 语音对话 | M4 | 说→听→回→播：Whisper ASR（本地识别）+ edge-tts TTS（中文女声） | `POST /chat/voice`、`scripts/run_voice_demo.py` |
 | 形象（Web 界面） | M5 | 程序化原创立绘 + 4 表情状态 + 按住说话语音控件 | `GET /`、`web/` |
+| 能力面板（Web） | M5.2 | 日程面板（今日/明日 + 增删完成）、规划面板（列表/删除 + 对话内步骤卡片）、记忆面板（查看/清空带确认） | `web/`、`/schedule`、`/plans`、`/memory` |
 | 延迟优化 | M4.1/M4.2 | Ollama keep_alive、回复截断、TTS LRU 缓存、ASR 启动预加载 | 证据 `data/m4_voice/evidence_m4{1,2}.json` |
 
 ## 快速开始
@@ -52,6 +56,9 @@ uvicorn app.main:app --port 8000         # Web 服务
 - **表情状态**：默认 / 思考 / 说话 / 开心，随对话自动切换（发送时思考、回复时说话、收到后开心）
 - **文本对话**：走真实 `POST /chat` API（不造假数据）
 - **语音对话**：按住 🎙 说话 → 浏览器录音（MediaRecorder）→ `POST /chat/voice` → 自动播放回复音频
+- **能力面板（M5.2）**：右侧三面板——📅 日程（今日/明日列表，新增提醒输入，✓完成 / ✕删除按钮）、
+  🗒 规划（已保存计划列表与删除；对话中说『帮我规划…』时回复下方自动展示步骤卡片，数据来自 `POST /plans` 真实结构化结果）、
+  🧠 记忆（查看 TA 记住的内容，清空需二次确认，走 `DELETE /memory?confirm=1`）
 - 页面轻量：原生 HTML/CSS/JS 单页，无框架依赖，支持减弱动画（`prefers-reduced-motion`）
 
 ### 语音说明（M4，含 M4.2 默认调优）
@@ -111,6 +118,13 @@ uvicorn app.main:app --port 8000         # Web 服务
 - `GET /voice/replies/{filename}` — 下载/播放回复音频（MP3）
 - `GET /memory` — 列示长期记忆（摘要级，`?limit=N` 默认 50，最多 200）
 - `DELETE /memory` — 清空长期记忆（需 `?confirm=1` 确认，返回删除条数并留痕日志）
+- `GET /schedule?date=today|tomorrow` — 查询今日/明日日程（M5.2）
+- `POST /schedule` — 自然语言提醒语 `{"text": "明天下午3点提醒我喝水"}` → 201 + 结构化条目（M5.2）
+- `POST /schedule/{id}/done` — 按 id 标记日程完成（M5.2）
+- `DELETE /schedule/{id}` — 按 id 删除日程（M5.2）
+- `GET /plans` — 已保存规划列表（目标/步数/时间摘要，M5.2）
+- `POST /plans` — 生成规划（不落库）`{"goal": "帮我规划周末学做饭"}` → 201 + 结构化步骤清单（M5.2，前端步骤卡片数据源）
+- `DELETE /plans/{id}` — 删除一份已保存规划（M5.2）
 - `GET /health` — 健康检查
 
 ```powershell

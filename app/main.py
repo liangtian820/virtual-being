@@ -20,6 +20,8 @@ from pydantic import BaseModel
 
 from app.agents.persona_agent import PersonaAgent
 from app.config import CONFIG
+from app.tools import planning as _planning_tools   # M5.2：规划列表/删除（薄封装）
+from app.tools import schedule as _schedule_tools   # M5.2：日程增查/按 id 完成删除（薄封装）
 from app.voice.asr import WhisperASR
 from app.voice.pipeline import VoicePipeline
 
@@ -81,8 +83,8 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Virtual Being", version="0.6.0",
-              description="AI 虚拟人物 · M4.2 语音优化", lifespan=lifespan)
+app = FastAPI(title="Virtual Being", version="0.7.0",
+              description="AI 虚拟人物 · M5.2 能力面板（日程/规划/记忆）", lifespan=lifespan)
 
 
 def get_voice_pipeline() -> VoicePipeline:
@@ -221,3 +223,84 @@ app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="web_static")
 def index() -> FileResponse:
     """返回 Web 聊天界面首页（立绘 + 对话窗 + 语音控件）。"""
     return FileResponse(WEB_DIR / "index.html", media_type="text/html")
+
+
+# ---------- M5.2（WO-20260816-24）：日程 / 规划 Web API（薄封装既有能力 Agent 接口） ----------
+
+
+class ScheduleAddRequest(BaseModel):
+    """新增日程请求体：自然语言提醒语（与对话中『提醒我…』同解析规则）。"""
+
+    text: str
+
+
+class PlanRequest(BaseModel):
+    """生成规划请求体：目标（如『帮我规划周末学做饭』）。"""
+
+    goal: str
+
+
+@app.get("/schedule")
+def schedule_list(date: str = Query("today", pattern="^(today|tomorrow)$")) -> dict:
+    """查询今日/明日日程（Web 日程面板：今日/明日列表）。"""
+    data = _schedule_tools.tomorrow() if date == "tomorrow" else _schedule_tools.today()
+    return {"date": data["date"], "entries": data["entries"], "count": data["count"]}
+
+
+@app.post("/schedule", status_code=201)
+def schedule_add(req: ScheduleAddRequest) -> dict:
+    """自然语言提醒语 → 添加一条日程（解析失败返回 400，不落库）。"""
+    if not req.text.strip():
+        raise HTTPException(status_code=400, detail="提醒内容不能为空")
+    result = _schedule_tools.add(req.text)
+    if result["error"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return {"id": result["id"], "date": result["date"], "time": result["time"],
+            "event": result["event"], "repeat": result.get("repeat")}
+
+
+@app.post("/schedule/{item_id}/done")
+def schedule_mark_done(item_id: int) -> dict:
+    """按 id 标记日程完成（Web 日程面板的『完成』按钮）。"""
+    result = _schedule_tools.mark_done_by_id(item_id)
+    if result["error"]:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return {"ok": True, "id": item_id, "updated": result["updated"], "entry": result["entry"]}
+
+
+@app.delete("/schedule/{item_id}")
+def schedule_delete(item_id: int) -> dict:
+    """按 id 删除日程（Web 日程面板的『删除』按钮）。"""
+    result = _schedule_tools.delete_by_id(item_id)
+    if not result["deleted"]:
+        raise HTTPException(status_code=404, detail=result["error"] or "未找到该日程")
+    return {"ok": True, "id": item_id, "deleted": True, "entry": result["entry"]}
+
+
+@app.get("/plans")
+def plans_list() -> dict:
+    """列出已保存的规划（Web 规划面板：目标/步数/时间摘要）。"""
+    return _planning_tools.list_plans()
+
+
+@app.post("/plans", status_code=201)
+def plans_generate(req: PlanRequest) -> dict:
+    """生成一份规划（不落库）：目标 → 结构化步骤清单。
+
+    Web 对话内『帮我规划…』时前端并行调用，渲染步骤卡片（真实结构化数据）。
+    """
+    if not req.goal.strip():
+        raise HTTPException(status_code=400, detail="目标不能为空")
+    result = _planning_tools.plan(req.goal)
+    if result["error"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return {"goal": result["goal"], "steps": result["steps"]}
+
+
+@app.delete("/plans/{plan_id}")
+def plans_delete(plan_id: int) -> dict:
+    """删除一份已保存的规划（Web 规划面板的『删除』按钮）。"""
+    result = _planning_tools.delete_plan(plan_id)
+    if not result["deleted"]:
+        raise HTTPException(status_code=404, detail=result["error"] or "未找到该计划")
+    return {"ok": True, "id": plan_id, "deleted": True}

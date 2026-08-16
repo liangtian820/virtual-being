@@ -165,6 +165,62 @@
       <div id="voice-hint" class="voice-hint">按住 🎙 说话，松开发送</div>
       <div id="voice-status" class="voice-status" role="status" aria-live="polite"></div>
     </section>
+
+    <!-- 能力面板（M5.2：日程 / 规划 / 记忆） -->
+    <aside class="panels" aria-label="能力面板">
+      <div class="panels-tabs" role="tablist">
+        <button type="button" class="tab active" data-panel="schedule" role="tab" aria-selected="true">📅 日程</button>
+        <button type="button" class="tab" data-panel="plans" role="tab" aria-selected="false">🗒 规划</button>
+        <button type="button" class="tab" data-panel="memory" role="tab" aria-selected="false">🧠 记忆</button>
+      </div>
+
+      <!-- 日程面板 -->
+      <div id="panel-schedule" class="panel active" role="tabpanel">
+        <div class="panel-head">
+          <div class="seg" role="tablist">
+            <button type="button" class="seg-btn active" data-date="today" role="tab" aria-selected="true">今日</button>
+            <button type="button" class="seg-btn" data-date="tomorrow" role="tab" aria-selected="false">明日</button>
+          </div>
+          <button type="button" id="schedule-refresh" class="icon-btn" title="刷新日程" aria-label="刷新日程">🔄</button>
+        </div>
+        <div class="panel-scroll">
+          <ul id="schedule-list" class="panel-list"></ul>
+          <div id="schedule-empty" class="panel-empty">今天还没有安排哦～ 可以给 TA 说『明天下午 3 点提醒我喝水』</div>
+        </div>
+        <form id="schedule-form" class="panel-form" autocomplete="off">
+          <input id="schedule-input" type="text" placeholder="新增提醒，如：明天下午3点喝水" aria-label="新增日程提醒" maxlength="80">
+          <button type="submit">＋ 添加</button>
+        </form>
+        <p id="schedule-hint" class="panel-hint" role="status" aria-live="polite"></p>
+      </div>
+
+      <!-- 规划面板 -->
+      <div id="panel-plans" class="panel" role="tabpanel">
+        <div class="panel-head">
+          <h2>已保存的计划</h2>
+          <button type="button" id="plans-refresh" class="icon-btn" title="刷新规划" aria-label="刷新规划">🔄</button>
+        </div>
+        <div class="panel-scroll">
+          <ul id="plans-list" class="panel-list"></ul>
+          <div id="plans-empty" class="panel-empty">还没有保存的计划～ 对 TA 说『帮我规划周末学做饭』，再补一句『存下来』即可收藏</div>
+        </div>
+        <p id="plans-hint" class="panel-hint" role="status" aria-live="polite"></p>
+      </div>
+
+      <!-- 记忆面板 -->
+      <div id="panel-memory" class="panel" role="tabpanel">
+        <div class="panel-head">
+          <h2>TA 记住的你</h2>
+          <button type="button" id="memory-refresh" class="icon-btn" title="刷新记忆" aria-label="刷新记忆">🔄</button>
+          <button type="button" id="memory-clear" class="danger-btn" title="清空全部记忆（需确认）">清空记忆</button>
+        </div>
+        <div class="panel-scroll">
+          <ul id="memory-list" class="panel-list"></ul>
+          <div id="memory-empty" class="panel-empty">TA 还在慢慢了解你～ 多和 TA 聊聊，TA 会记住重要的事</div>
+        </div>
+        <p id="memory-hint" class="panel-hint" role="status" aria-live="polite"></p>
+      </div>
+    </aside>
   </main>
 
   <script src="/static/js/app.js"></script>

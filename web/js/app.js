@@ -18,8 +18,35 @@
   const VOICE_HINT = document.getElementById("voice-hint");
   const VOICE_STATUS = document.getElementById("voice-status");
 
+  // M5.2 能力面板元素
+  const TABS = Array.from(document.querySelectorAll(".panels-tabs .tab"));
+  const PANELS = {
+    schedule: document.getElementById("panel-schedule"),
+    plans: document.getElementById("panel-plans"),
+    memory: document.getElementById("panel-memory"),
+  };
+  const SCHED_LIST = document.getElementById("schedule-list");
+  const SCHED_EMPTY = document.getElementById("schedule-empty");
+  const SCHED_FORM = document.getElementById("schedule-form");
+  const SCHED_INPUT = document.getElementById("schedule-input");
+  const SCHED_HINT = document.getElementById("schedule-hint");
+  const SCHED_REFRESH = document.getElementById("schedule-refresh");
+  const SCHED_SEG_BTNS = Array.from(document.querySelectorAll(".seg-btn[data-date]"));
+  const PLANS_LIST = document.getElementById("plans-list");
+  const PLANS_EMPTY = document.getElementById("plans-empty");
+  const PLANS_HINT = document.getElementById("plans-hint");
+  const PLANS_REFRESH = document.getElementById("plans-refresh");
+  const MEMORY_LIST = document.getElementById("memory-list");
+  const MEMORY_EMPTY = document.getElementById("memory-empty");
+  const MEMORY_HINT = document.getElementById("memory-hint");
+  const MEMORY_REFRESH = document.getElementById("memory-refresh");
+  const MEMORY_CLEAR = document.getElementById("memory-clear");
+
   const API_CHAT  = "/chat";
   const API_VOICE = "/chat/voice";
+  const API_SCHEDULE = "/schedule";
+  const API_PLANS = "/plans";
+  const API_MEMORY = "/memory";
 
   const STATE_LABELS = {
     default: "默认",
@@ -134,6 +161,11 @@
       localStorage.setItem(SESSION_KEY, sessionId);
       const bubble = addMessage("bot", "");
       await typeReply(bubble, data.reply);
+      // M5.2：规划意图 → 步骤卡片（优先 POST /plans 结构化数据，失败则从回复文本解析；都不行只显示文本）
+      if (isPlanningQuery(query)) {
+        const steps = await fetchPlanSteps(query.trim(), data.reply);
+        if (steps.length) renderPlanCard(bubble, steps);
+      }
       happyBriefly();
     } catch (err) {
       setState("default");
@@ -268,6 +300,360 @@
     });
   }
 
+  /* ============================================================
+   * M5.2：规划步骤卡片（对话内）
+   * 后端 /chat 返回的是人设化纯文本回复（步骤经 LLM 口语化输出），
+   * 前端识别规划意图并在回复文本中解析编号步骤行 → 卡片化展示。
+   * ============================================================ */
+
+  // 规划意图关键词（与后端 is_planning_query 的强词对齐，前端用于决定是否尝试解析卡片）
+  const PLANNING_RE = /(帮我规划|帮我做个计划|帮我制定|做个计划|制定计划|规划一下|计划一下|怎么学|怎么准备|给我个计划|帮我安排一下计划)/;
+
+  function isPlanningQuery(text) {
+    return PLANNING_RE.test(text || "");
+  }
+
+  /**
+   * 从回复文本中解析步骤行：形如 "1. 步骤标题（优先级：高）——说明" 或 "1. 步骤标题"。
+   * 返回 [{no, title, priority, detail}]；解析不到 ≥2 步则返回 []（不渲染卡片，避免误导）。
+   */
+  function parsePlanSteps(text) {
+    const steps = [];
+    const re = /^\s*(\d+)[.、．）]\s*(.+?)\s*$/gm;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const raw = m[2];
+      let title = raw;
+      let priority = "";
+      // 提取 "（优先级：高）" 尾巴
+      const pri = raw.match(/[（(]\s*优先级[:：]\s*(高|中|低)\s*[）)]/);
+      if (pri) {
+        priority = pri[1];
+        title = raw.replace(pri[0], "");
+      }
+      // 提取 "——说明" 尾巴
+      const sep = title.search(/——|--|：/);
+      let detail = "";
+      if (sep > 0) {
+        detail = title.slice(sep + 1).trim();
+        title = title.slice(0, sep).trim();
+      }
+      title = title.replace(/[，,。.、\s]+$/, "").trim();
+      if (!title) continue;
+      steps.push({ no: steps.length + 1, title, priority, detail });
+      if (steps.length >= 12) break;
+    }
+    return steps.length >= 2 ? steps : [];
+  }
+
+  /**
+   * 获取规划步骤（真实数据，非前端编造）：
+   * 1) 优先 POST /plans 调后端 PlanningAgent 拿结构化 steps；
+   * 2) 失败时从 chat 回复文本解析编号步骤行作兜底。
+   * 返回 [{no, title, priority, detail}]；拿不到 ≥2 步则 []。
+   */
+  async function fetchPlanSteps(goal, replyText) {
+    try {
+      const resp = await fetch(API_PLANS, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goal }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (Array.isArray(data.steps) && data.steps.length >= 2) {
+          return data.steps.map((s, i) => ({
+            no: s.no || i + 1,
+            title: String(s.title || ""),
+            priority: s.priority || "",
+            detail: s.detail || "",
+          })).filter((s) => s.title);
+        }
+      }
+    } catch (e) {
+      /* 结构化接口失败 → 文本解析兜底 */
+    }
+    return parsePlanSteps(replyText || "");
+  }
+
+  /** 在回复气泡下方渲染步骤卡片。 */
+  function renderPlanCard(bubble, steps) {
+    if (!steps || !steps.length) return;
+    const card = document.createElement("div");
+    card.className = "plan-card";
+    const title = document.createElement("div");
+    title.className = "plan-card-title";
+    title.textContent = "📋 帮你梳理好的步骤：";
+    card.appendChild(title);
+    for (const s of steps) {
+      const row = document.createElement("div");
+      row.className = "plan-step";
+      const no = document.createElement("span");
+      no.className = "plan-step-no";
+      no.textContent = String(s.no);
+      const body = document.createElement("div");
+      body.className = "plan-step-body";
+      const text = document.createElement("span");
+      text.textContent = s.title;
+      body.appendChild(text);
+      if (s.priority) {
+        const pri = document.createElement("span");
+        pri.className = "plan-step-pri";
+        pri.textContent = s.priority;
+        body.appendChild(pri);
+      }
+      if (s.detail) {
+        const det = document.createElement("div");
+        det.textContent = s.detail;
+        det.style.cssText = "font-size:12px;color:#8a7284;margin-top:2px;";
+        body.appendChild(det);
+      }
+      row.appendChild(no);
+      row.appendChild(body);
+      card.appendChild(row);
+    }
+    // 插到气泡所在消息内（气泡之后）
+    const wrap = bubble.parentElement;
+    wrap.appendChild(card);
+    MESSAGES.scrollTop = MESSAGES.scrollHeight;
+  }
+
+  /* ============================================================
+   * M5.2：能力面板（日程 / 规划 / 记忆）
+   * ============================================================ */
+
+  function setHint(el, text, isError) {
+    if (!el) return;
+    el.textContent = text || "";
+    el.classList.toggle("error", !!isError);
+  }
+
+  function switchPanel(name) {
+    for (const tab of TABS) {
+      const active = tab.dataset.panel === name;
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-selected", active ? "true" : "false");
+    }
+    for (const key of Object.keys(PANELS)) {
+      PANELS[key].classList.toggle("active", key === name);
+    }
+    // 首次打开时按需加载
+    if (name === "schedule" && !SCHED_LIST.dataset.loaded) loadSchedule(currentSchedDate());
+    if (name === "plans" && !PLANS_LIST.dataset.loaded) loadPlans();
+    if (name === "memory" && !MEMORY_LIST.dataset.loaded) loadMemory();
+  }
+
+  function currentSchedDate() {
+    const active = SCHED_SEG_BTNS.find((b) => b.classList.contains("active"));
+    return active ? active.dataset.date : "today";
+  }
+
+  // ---------- 日程 ----------
+
+  async function loadSchedule(date) {
+    try {
+      const resp = await fetch(API_SCHEDULE + "?date=" + encodeURIComponent(date));
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      SCHED_LIST.dataset.loaded = "1";
+      renderSchedule(data.entries || [], data.date);
+    } catch (err) {
+      setHint(SCHED_HINT, "日程加载失败：" + err.message, true);
+    }
+  }
+
+  function renderSchedule(entries, dateLabel) {
+    SCHED_LIST.textContent = "";
+    SCHED_EMPTY.style.display = entries.length ? "none" : "block";
+    for (const e of entries) {
+      const li = document.createElement("li");
+      li.className = e.done ? "item-done" : "";
+      const time = document.createElement("span");
+      time.className = "item-time";
+      time.textContent = e.time || "全天";
+      const main = document.createElement("div");
+      main.className = "item-main";
+      main.textContent = e.event || "（无事项）";
+      if (e.repeat) {
+        const rep = document.createElement("div");
+        rep.className = "item-repeat";
+        rep.textContent = "重复：" + e.repeat;
+        main.appendChild(rep);
+      }
+      const actions = document.createElement("div");
+      actions.className = "item-actions";
+      const doneBtn = document.createElement("button");
+      doneBtn.type = "button";
+      doneBtn.title = e.done ? "已完成" : "标记完成";
+      doneBtn.textContent = "✓";
+      doneBtn.disabled = !!e.done;
+      doneBtn.addEventListener("click", () => markScheduleDone(e.id));
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.title = "删除";
+      delBtn.textContent = "✕";
+      delBtn.addEventListener("click", () => deleteSchedule(e.id));
+      actions.appendChild(doneBtn);
+      actions.appendChild(delBtn);
+      li.appendChild(time);
+      li.appendChild(main);
+      li.appendChild(actions);
+      SCHED_LIST.appendChild(li);
+    }
+    setHint(SCHED_HINT, dateLabel ? "已显示 " + dateLabel + " 的日程（" + entries.length + " 条）" : "");
+  }
+
+  async function addSchedule(text) {
+    if (!text.trim()) return;
+    try {
+      const resp = await fetch(API_SCHEDULE, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text.trim() }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.detail || ("HTTP " + resp.status));
+      SCHED_INPUT.value = "";
+      setHint(SCHED_HINT, "记下啦：" + data.date + " " + data.time + " " + data.event);
+      loadSchedule(currentSchedDate());
+    } catch (err) {
+      setHint(SCHED_HINT, "没记上：" + err.message, true);
+    }
+  }
+
+  async function markScheduleDone(id) {
+    try {
+      const resp = await fetch(API_SCHEDULE + "/" + id + "/done", { method: "POST" });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || ("HTTP " + resp.status));
+      }
+      loadSchedule(currentSchedDate());
+    } catch (err) {
+      setHint(SCHED_HINT, "操作失败：" + err.message, true);
+    }
+  }
+
+  async function deleteSchedule(id) {
+    try {
+      const resp = await fetch(API_SCHEDULE + "/" + id, { method: "DELETE" });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || ("HTTP " + resp.status));
+      }
+      setHint(SCHED_HINT, "已删除该条日程");
+      loadSchedule(currentSchedDate());
+    } catch (err) {
+      setHint(SCHED_HINT, "删除失败：" + err.message, true);
+    }
+  }
+
+  // ---------- 规划 ----------
+
+  async function loadPlans() {
+    try {
+      const resp = await fetch(API_PLANS);
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      PLANS_LIST.dataset.loaded = "1";
+      renderPlans(data.plans || []);
+    } catch (err) {
+      setHint(PLANS_HINT, "规划列表加载失败：" + err.message, true);
+    }
+  }
+
+  function renderPlans(plans) {
+    PLANS_LIST.textContent = "";
+    PLANS_EMPTY.style.display = plans.length ? "none" : "block";
+    for (const p of plans) {
+      const li = document.createElement("li");
+      const main = document.createElement("div");
+      main.className = "plan-item-goal";
+      main.textContent = p.goal;
+      const meta = document.createElement("div");
+      meta.className = "plan-item-meta";
+      meta.textContent = p.step_count + " 步 · " + (p.created_at || "");
+      main.appendChild(meta);
+      const actions = document.createElement("div");
+      actions.className = "item-actions";
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.title = "删除计划";
+      delBtn.textContent = "✕";
+      delBtn.addEventListener("click", () => deletePlan(p.id));
+      actions.appendChild(delBtn);
+      li.appendChild(main);
+      li.appendChild(actions);
+      PLANS_LIST.appendChild(li);
+    }
+    setHint(PLANS_HINT, plans.length ? "共 " + plans.length + " 份计划" : "");
+  }
+
+  async function deletePlan(id) {
+    try {
+      const resp = await fetch(API_PLANS + "/" + id, { method: "DELETE" });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || ("HTTP " + resp.status));
+      }
+      setHint(PLANS_HINT, "已删除该计划");
+      loadPlans();
+    } catch (err) {
+      setHint(PLANS_HINT, "删除失败：" + err.message, true);
+    }
+  }
+
+  // ---------- 记忆 ----------
+
+  async function loadMemory() {
+    try {
+      const resp = await fetch(API_MEMORY);
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      MEMORY_LIST.dataset.loaded = "1";
+      renderMemory(data.memories || []);
+    } catch (err) {
+      setHint(MEMORY_HINT, "记忆加载失败：" + err.message, true);
+    }
+  }
+
+  function renderMemory(memories) {
+    MEMORY_LIST.textContent = "";
+    MEMORY_EMPTY.style.display = memories.length ? "none" : "block";
+    for (const m of memories) {
+      const li = document.createElement("li");
+      const kind = document.createElement("span");
+      kind.className = "memory-kind " + (m.kind || "other");
+      kind.textContent = m.kind || "other";
+      const main = document.createElement("div");
+      main.className = "item-main";
+      main.textContent = m.content;
+      const meta = document.createElement("div");
+      meta.className = "plan-item-meta";
+      meta.textContent = m.created_at || "";
+      main.appendChild(meta);
+      li.appendChild(kind);
+      li.appendChild(main);
+      MEMORY_LIST.appendChild(li);
+    }
+    setHint(MEMORY_HINT, memories.length ? "共 " + memories.length + " 条记忆" : "");
+  }
+
+  async function clearMemory() {
+    // 清空属破坏性操作：先确认再调用（后端也要求 confirm=1 二次确认）
+    if (!window.confirm("确定要清空 TA 的全部记忆吗？清空后不可恢复。")) return;
+    try {
+      const resp = await fetch(API_MEMORY + "?confirm=1", { method: "DELETE" });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.detail || ("HTTP " + resp.status));
+      setHint(MEMORY_HINT, "已清空 " + data.deleted + " 条记忆");
+      delete MEMORY_LIST.dataset.loaded;
+      loadMemory();
+    } catch (err) {
+      setHint(MEMORY_HINT, "清空失败：" + err.message, true);
+    }
+  }
+
   /* ---------- 输入框自适应高度 ---------- */
   function autoResize() {
     INPUT.style.height = "auto";
@@ -312,7 +698,30 @@
     stopCurrentAudio();
   });
 
+  /* ---------- M5.2：能力面板事件 ---------- */
+  for (const tab of TABS) {
+    tab.addEventListener("click", () => switchPanel(tab.dataset.panel));
+  }
+  for (const btn of SCHED_SEG_BTNS) {
+    btn.addEventListener("click", () => {
+      for (const b of SCHED_SEG_BTNS) {
+        b.classList.toggle("active", b === btn);
+        b.setAttribute("aria-selected", b === btn ? "true" : "false");
+      }
+      loadSchedule(btn.dataset.date);
+    });
+  }
+  SCHED_REFRESH.addEventListener("click", () => loadSchedule(currentSchedDate()));
+  SCHED_FORM.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    addSchedule(SCHED_INPUT.value);
+  });
+  PLANS_REFRESH.addEventListener("click", () => loadPlans());
+  MEMORY_REFRESH.addEventListener("click", () => loadMemory());
+  MEMORY_CLEAR.addEventListener("click", clearMemory);
+
   /* ---------- 启动 ---------- */
   initVoice();
   INPUT.focus();
+  switchPanel("schedule"); // 默认打开日程面板（懒加载今日日程）
 })();
