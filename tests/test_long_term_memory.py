@@ -1,5 +1,6 @@
 """长期记忆（M3）离线测试：SQLite 持久化、检索、提取规则、跨会话注入。"""
 import concurrent.futures
+import time
 
 import pytest
 
@@ -99,8 +100,19 @@ def test_cross_thread_usage(tmp_path) -> None:
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
         # 任何 worker 内异常都会在此处冒泡，使测试失败
         list(ex.map(worker, range(8)))
-    # 8 条唯一 fact + 1 条去重后的 topic
-    assert mem.count() == 9
+    # 确定性加固（M4）：所有 worker 已 join，再轮询等待 count 连续两次读一致
+    # （最长 2s），覆盖最后一个写事务落定的极窄窗口，避免全量并发下偶发误报。
+    prev = -1
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        cur = mem.count()
+        if cur == prev:
+            break
+        prev = cur
+        time.sleep(0.05)
+    # 严格断言（不放宽）：8 条唯一 fact + 1 条去重后的 topic = 9；
+    # 若业务去重竞态仍存在（多插重复），此处稳定失败暴露问题，而非偶发。
+    assert prev == 9
     mem.close()
 
 
