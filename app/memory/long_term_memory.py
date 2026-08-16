@@ -56,21 +56,32 @@ class LongTermMemory:
         """写入一条记忆，返回记忆 id。
 
         去重（P3-1）：同 (kind, content) 已存在时不重复新增，直接返回已有 id。
+        并发安全（M4 补丁）：查重 + 插入放进 BEGIN IMMEDIATE 写事务，串行化
+        check-then-insert，避免多线程同时写同内容时偶发重复插入（TOCTOU 竞态，
+        曾被 test_cross_thread_usage 偶发命中 assert 11 == 9）。
         """
         content = content.strip()
-        with closing(self._connect()) as conn:
-            with conn:
-                row = conn.execute(
-                    "SELECT id FROM memories WHERE kind = ? AND content = ?",
-                    (kind, content),
-                ).fetchone()
-                if row is not None:
-                    return row[0]
-                mid = uuid.uuid4().hex[:8]
-                conn.execute(
-                    "INSERT INTO memories VALUES (?,?,?,?,?)",
-                    (mid, kind, content, source_session, datetime.now().isoformat(timespec="seconds")),
-                )
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")  # 获取写锁（timeout=5 兜底）
+            row = conn.execute(
+                "SELECT id FROM memories WHERE kind = ? AND content = ?",
+                (kind, content),
+            ).fetchone()
+            if row is not None:
+                conn.commit()
+                return row[0]
+            mid = uuid.uuid4().hex[:8]
+            conn.execute(
+                "INSERT INTO memories VALUES (?,?,?,?,?)",
+                (mid, kind, content, source_session, datetime.now().isoformat(timespec="seconds")),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
         return mid
 
     def retrieve(self, query: str, limit: int = 5, days: int = 90) -> List[Dict[str, object]]:
