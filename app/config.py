@@ -1,0 +1,38 @@
+"""应用配置。
+
+从环境变量读取，支持 .env 文件（通过 python-dotenv 或手动加载）。
+"""
+from dataclasses import dataclass, field
+import os
+
+
+def _load_dotenv() -> None:
+    """极简 .env 加载器，避免额外依赖。"""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    if not os.path.exists(path):
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_dotenv()
+
+
+@dataclass(frozen=True)
+class Config:
+    """项目配置（从环境变量读取）。"""
+
+    ollama_base_url: str = field(default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
+    ollama_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen2.5:7b"))
+    app_host: str = field(default_factory=lambda: os.getenv("APP_HOST", "127.0.0.1"))
+    app_port: int = field(default_factory=lambda: int(os.getenv("APP_PORT", "8000")))
+    temperature: float = field(default_factory=lambda: float(os.getenv("PERSONA_TEMPERATURE", "0.8")))
+    max_history_turns: int = field(default_factory=lambda: int(os.getenv("PERSONA_MAX_HISTORY_TURNS", "10")))
+
+
+CONFIG = Config()
