@@ -5,8 +5,8 @@
     {
       "input": "帮我搜一下 DeepSeek 最新新闻",
       "expected_tool_prefix": "web_search",
-      "elapsed_s": 37.69,
-      "reply": "我帮您查到了一些关于 DeepSeek 的信息。最近的新闻有：\n\n1. DeepSeek 是一家专注于构建领先人工智能技术的研究公司。\n2. DeepSeek 官方推出了 AI 助手，提供与全球顶级 AI 模型互动交流的机会。\n3. DeepSeek-V4-Pro 正式版发布，其 Agent 能力有了显著提升，支持 Responses API。\n\n这些都是最近的动态哦。有其他想要了解的信息吗？",
+      "elapsed_s": 29.54,
+      "reply": "嗯嗯，我帮你查到了：DeepSeek| Into the Unknown、DeepSeek- Windows官方下载 | 微软应用商店 | Microsoft Store、DeepSeek官网 –DeepSeek官方下载 | 国产开源大模型旗舰 ...，就这些哦。",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -19,7 +19,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_je16p6cv",
+              "id": "call_7ss64ikc",
               "function": {
                 "index": 0,
                 "name": "web_search",
@@ -54,13 +54,19 @@
       "triggered": true,
       "chinese_no_mojibake": true,
       "reply_conveys_tool_result": true,
-      "no_fabrication": true
+      "no_fabrication": true,
+      "true_items": [
+        "DeepSeek| Into the Unknown",
+        "DeepSeek- Windows官方下载 | 微软应用商店 | Microsoft Store",
+        "DeepSeek官网 –DeepSeek官方下载 | 国产开源大模型旗舰 ..."
+      ],
+      "items_match_true_result": false
     },
     {
       "input": "列出知识库里 30 项目的文档",
       "expected_tool_prefix": "obsidian",
-      "elapsed_s": 14.57,
-      "reply": "我帮你查到了，知识库里第30个项目是“AI虚拟人物/”。虽然只有这一项，但我在里面找到了相关信息。有其他需要帮忙查的吗？",
+      "elapsed_s": 12.18,
+      "reply": "我帮你查到了，30 项目里有个 AI虚拟人物 文件夹。",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -77,7 +83,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_94sv6aj5",
+              "id": "call_oaxas9ro",
               "function": {
                 "index": 0,
                 "name": "obsidian_vault_list",
@@ -116,13 +122,17 @@
       "triggered": true,
       "chinese_no_mojibake": true,
       "reply_conveys_tool_result": true,
-      "no_fabrication": true
+      "no_fabrication": true,
+      "true_items": [
+        "AI虚拟人物/"
+      ],
+      "items_match_true_result": true
     },
     {
       "input": "明天下午3点提醒我喝水",
       "expected_tool_prefix": "schedule",
-      "elapsed_s": 11.92,
-      "reply": "好的，我已经帮你安排好了。明天下午三点会提醒你记得喝水哦。保持水分很重要呢！有其他需要帮忙的吗？",
+      "elapsed_s": 10.82,
+      "reply": "好的呢，我已经帮你安排好了，明天下午三点会有喝水的小提醒哦。到时候记得喝一杯水，保持身体水分哦~",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -135,7 +145,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_h0j24znb",
+              "id": "call_x7bvy6sf",
               "function": {
                 "index": 0,
                 "name": "add_schedule",
@@ -173,8 +183,8 @@
     {
       "input": "DeepSeek Harness 是什么",
       "expected_tool_prefix": "knowledge",
-      "elapsed_s": 26.79,
-      "reply": "DeepSeek Harness 是一个由 DeepSeek AI 开发的开源项目，面向开发者提供了一系列工具和插件支持。它有点像一个平台，允许用户更灵活地构建和管理各种AI代理。如果你想深入了解或者试用一下，可以看看那些链接里的教程和介绍哦！",
+      "elapsed_s": 28.8,
+      "reply": "嗯嗯，我帮你查到了：DeepSeek Harness-DeepSeek推出的开源 AI Agent ...、DeepSeek Harness2026：一切皆插件 — 开发者预览版完全 ...、DeepSeek Harness教程 | 菜鸟教程，就这些哦。",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -187,7 +197,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_q2kns5o0",
+              "id": "call_upbq5pr1",
               "function": {
                 "index": 0,
                 "name": "query_knowledge",
@@ -226,8 +236,8 @@
     {
       "input": "LangChain 是什么",
       "expected_tool_prefix": "knowledge",
-      "elapsed_s": 14.21,
-      "reply": "LangChain 是一个让不同的人工智能代理和能力代理协同工作的平台呢。在这个平台上，各种AI可以更好地合作完成任务哦。我这里查到了它用的一个多Agent编排框架叫 LangGraph，挺有意思的！这个框架帮助不同的人格AI和能力AI一起工作，就像是团队协作一样，每个成员都有自己的擅长之处，共同完成一个目标。",
+      "elapsed_s": 14.4,
+      "reply": "LangChain 是一个用于构建复杂 AI 系统的框架，它可以让你把多个 AI 能力和人格 Agent 组合在一起，就像是搭积木一样灵活配置呢。本项目里用 LangGraph 来安排这些小 AI 们如何合作，让它们能更好地帮你解决问题哦。",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -240,7 +250,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_6cyh1efg",
+              "id": "call_afcgxrfz",
               "function": {
                 "index": 0,
                 "name": "query_knowledge",
@@ -279,8 +289,8 @@
     {
       "input": "DeepSeek Harness 是干嘛的？",
       "expected_tool_prefix": "knowledge",
-      "elapsed_s": 28.84,
-      "reply": "嗯嗯，DeepSeek Harness 看起来挺有意思的。它主要是提供了一种插件式的开发环境，让开发者可以方便地构建各种 AI 代理。我在搜索结果里找到了几个相关的链接，有官方文档和一些入门教程，感兴趣的话我们可以一起看看，帮助你了解更多细节哦！",
+      "elapsed_s": 34.28,
+      "reply": "嗯嗯，我帮你查到了：DeepSeek Harness 是什么，怎么用？一篇写给开发者的“黑鲸 ...、Harness（DeepSeek内部团队）_百度百科、DeepSeek Harness-DeepSeek推出的开源 AI Agent ...，就这些哦。",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -293,12 +303,12 @@
           ],
           "tool_calls": [
             {
-              "id": "call_7q1f37fw",
+              "id": "call_aczx9c6e",
               "function": {
                 "index": 0,
                 "name": "query_knowledge",
                 "arguments": {
-                  "question": "DeepSeek Harness"
+                  "question": "DeepSeek Harness 是干嘛的"
                 }
               }
             }
@@ -320,9 +330,9 @@
         {
           "name": "query_knowledge",
           "arguments": {
-            "question": "DeepSeek Harness"
+            "question": "DeepSeek Harness 是干嘛的"
           },
-          "result": "（内置知识库未查到，以下为联网搜索结果）\n1. deepseek-harness/README.zh.md at master ·deepseek-ai ...\n   链接：https://github.com/deepseek-ai/deepseek-harness/blob/master/README.zh.md\n   摘要：3 天之前 · DeepSeek Harness: Everything is a Plugin. Contribute to deepseek-ai/deepseek-harness development by creating an …\n2. DeepSeek Harness首发实测 + 入门教程，夯爆了！梁神我错了\n   链接：https://zhuanlan.zhihu.com/p/2071615956632319784\n   摘要：2 天之前 · 恭喜你，DeepSeek Harness 才发布了一天，你就已经掌握了 DeepSeek Harness 的基础用法，至少超过了 90% 的同学！  …\n3. DeepSeek Harnessdeveloper preview: Everything is a plugin\n   链接：https://www.deepseek.com/harness/en/\n   摘要：3 天之前 · DeepSee"
+          "result": "（内置知识库未查到，以下为联网搜索结果）\n1. DeepSeek Harness 是什么，怎么用？一篇写给开发者的“黑鲸 ...\n   链接：https://zhuanlan.zhihu.com/p/2071530320801830165\n   摘要：2 天之前 · 2026年8月13日，DeepSeek干了一件大事：正式发布并开源了DeepSeek Harness（dsh）的开发者预览版。消息一出，社 …\n2. Harness（DeepSeek内部团队）_百度百科\n   链接：https://baike.baidu.com/item/Harness/67826060\n   摘要：2026年7月31日 · Harness团队是 DeepSeek 内部于2026年5月组建的代码智能体团队 [3-6]，该团队为DeepSeek内部新设的研发单 …\n3. DeepSeek Harness-DeepSeek推出的开源 AI Agent ...\n   链接：https://www.aihub.cn/tools/deepseek-harness/\n   摘要：3 天之前 · DeepSeek Harness 是 DeepSeek 推出的开源 AI Agent Harness 框架，采用“一切皆插件”架构，支持模型、工具、Skills、 …"
         }
       ],
       "triggered": true,
@@ -332,20 +342,28 @@
     {
       "input": "你好呀",
       "expected_tool_prefix": "greeting",
-      "elapsed_s": 3.14,
-      "reply": "你好呀～今天过得怎么样？我在呢。",
+      "elapsed_s": 3.19,
+      "reply": "嘿，你好呀！最近怎么样？我在呢。",
       "tool_call_rounds": [],
       "tool_executions": [],
       "natural_wording": true,
-      "greet_echo_count": 1
+      "template_hits": [],
+      "greeting_samples": [
+        "你好呀",
+        "你好呀",
+        "你好呀",
+        "嘿～ 你好呀",
+        "嗨嗨，你好呀",
+        "你好呀！很高兴遇见你～有什么想聊的吗？"
+      ]
     }
   ],
   "no_tool_fallback": {
     "input": "明天下午3点提醒我喝水（强制 LLM 不选工具）",
     "schedule_recorded": true,
     "no_fake_promise": true,
-    "elapsed_s": 3.92,
-    "reply": "好呀，明天下午3点提醒你喝水，我记下啦～记得多喝水对身体好哦。有事随时叫我！",
+    "elapsed_s": 4.24,
+    "reply": "好呀，明天下午3点提醒你喝水，我记下啦～记得多喝水对身体好哦！如果到时候你忙忘了，我也会温柔地提醒你的。",
     "tool_call_rounds": [],
     "tool_executions": []
   },
@@ -353,8 +371,8 @@
     "input": "列出知识库里 30 项目的文档（vault_list 返回空 {\"files\": []}）",
     "honest_not_found": true,
     "fabricated_samples": [],
-    "elapsed_s": 3.6,
-    "reply": "这个还查不到哦。我们可以换个话题聊聊，或者你有别的问题想问我吗？",
+    "elapsed_s": 3.42,
+    "reply": "这个还查不到哦。我们可以试试别的问题或者聊聊天，分散一下注意力？",
     "tool_call_rounds": [],
     "tool_executions": [
       {

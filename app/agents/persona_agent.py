@@ -306,6 +306,10 @@ _EMPTY_RESULT_HINTS = (
 )
 _EMPTY_RESULT_FALLBACK = "嗯嗯，我这边没有找到相关内容呢，换个说法我再帮你看看～"
 
+# M6.7（WO-20260816-37，QA P1）：非空结果仍编造时（重写后依然）的固定如实话术——
+# 只含真实条目，绝不把编造条目给用户。
+_FABRICATION_FALLBACK = "嗯嗯，我帮你查到了：{items}，就这些哦。"
+
 
 class PersonaAgent:
     """人格 Agent：人设注入 + 会话记忆 + 意图路由 + Ollama 推理。"""
@@ -395,6 +399,8 @@ class PersonaAgent:
                 user_input, messages, history=history, max_tokens=max_tokens)
             if tool_used:
                 reply = tool_reply if tool_reply is not None else self._TOOL_DONE_FALLBACK
+                # M6.7（WO-20260816-37，QA P2）：工具回复也做模板句消除
+                reply = self._strip_template_phrases(reply) or reply
                 for kind, content in extract_memories(user_input):
                     self._memory_long.add(kind, content, source_session=sid)
                 self._memory.append(sid, "assistant", reply)
@@ -418,6 +424,10 @@ class PersonaAgent:
         # 不依赖 3b 是否遵循提示词；LLM 已含求助线索则跳过（防重复）。
         if is_crisis_query(user_input):
             reply = ensure_crisis_help(reply)
+        else:
+            # M6.7（WO-20260816-37，QA P2）：普通对话回复做模板句消除
+            # （『今天过得怎么样？我在呢』类组合模板，7B 未完全遵循提示词时代码层兜底）
+            reply = self._strip_template_phrases(reply) or reply
         self._memory.append(sid, "assistant", reply)
         return reply, sid
 
@@ -951,6 +961,15 @@ class PersonaAgent:
             empty_results = bool(tool_msgs) and all(
                 self._is_empty_tool_result(m["content"]) for m in tool_msgs
             )
+            # WO-20260816-37（QA P1）：非空结果防填充——解析工具真实条目数 N，
+            # 阶段 2 提示词明确『只有 N 条』；回复生成后做条目比对，编造则重写/固定话术
+            true_items: list = []
+            if not empty_results:
+                for m in tool_msgs:
+                    true_items.extend(self._extract_true_items(m["content"]))
+                true_items = [it for it in true_items if it and it.strip()]
+            item_count_hint = (f"工具结果只有 {len(true_items)} 条，逐条念出即可，"
+                               f"绝对禁止补充任何额外条目/文档/内容。\n") if true_items else ""
             if empty_results:
                 msgs2 = list(messages) + [
                     {
@@ -975,6 +994,7 @@ class PersonaAgent:
                                    "① 结果里有目录/文件名/列表/条目时，逐条如实念出来（如『30 · 项目 里有 AI虚拟人物 文件夹』）；\n"
                                    "② 结果就是真实答案，绝对不要说自己做不到、不要说『我这边没有记录/查不到』、"
                                    "不要回避、不要编造结果之外的内容；\n"
+                                   + item_count_hint +
                                    "③ 用温柔治愈的口吻，简短口语，不要提『工具』『函数』『系统』『内部』等词；\n"
                                    "④ 用自然的话转述（如『我帮你查到了，XX 是……』），不要念清单、"
                                    "不要用『今天过得怎么样？我在呢』这类模板开头，句式有变化。\n"
@@ -992,6 +1012,29 @@ class PersonaAgent:
                 # WO-20260816-35 代码层兜底：空结果时 LLM 未如实『没找到』
                 # （编造填充/回避）→ 固定话术兜住，绝对零编造
                 reply = _EMPTY_RESULT_FALLBACK
+            elif true_items and self._stage2_has_fabrication(reply, true_items):
+                # WO-20260816-37 代码层兜底：非空结果但回复含结果外条目
+                # （QA 实测：真实仅 1 条『AI虚拟人物/』，回复编造 5 条）——
+                # ① 强制重写一次（只依据真实条目）；② 仍编造 → 固定如实话术截断
+                rewrite_msg = (
+                    "你上一条回复里列出了工具结果中没有的条目。工具真实结果只有以下 "
+                    f"{len(true_items)} 条，请严格只依据这些重写回复（逐条念出即可，"
+                    "删除所有额外条目），保持温柔治愈口吻、简短口语：\n"
+                    + "；".join(true_items)
+                )
+                try:
+                    msgs_rewrite = list(messages) + [
+                        {"role": "user", "content": user_input},
+                        {"role": "assistant", "content": reply},
+                        {"role": "system", "content": rewrite_msg},
+                    ]
+                    reply2 = self._call_ollama(msgs_rewrite, max_tokens)
+                except Exception:
+                    reply2 = ""
+                if not reply2 or self._stage2_has_fabrication(reply2, true_items):
+                    reply = _FABRICATION_FALLBACK.format(items="、".join(true_items))
+                else:
+                    reply = reply2
             return reply, True, False
         except Exception:
             # 阶段 1 尚未执行工具即异常 → 回退关键词路由安全（无副作用）
@@ -1016,6 +1059,91 @@ class PersonaAgent:
         if "0 条" in r or "0条" in r:
             return True
         return False
+
+    # WO-20260816-37（QA P1）：非空结果防填充——解析工具真实条目
+    @staticmethod
+    def _extract_true_items(result_text: str) -> list:
+        """解析工具结果中的真实条目（列表型 JSON 键优先：files/entries/items/results；
+        其次编号文本行：`1. xxx` / `- xxx`）；解析失败返回空列表（回退纯提示词约束）。"""
+        r = (result_text or "").strip()
+        if not r:
+            return []
+        # 列表型 JSON 键（Obsidian vault_list / search 等）
+        for key in ("files", "entries", "items", "results", "documents", "paths", "matches"):
+            m = re.search(rf'"{key}"\s*:\s*\[(.*?)\]', r, re.DOTALL)
+            if m:
+                items = [v.strip() for v in re.findall(r'"([^"]+)"', m.group(1))]
+                if items:
+                    return items
+        # 编号文本行：1. xxx / 2、xxx / - xxx（web_search 结果等）
+        items = []
+        for line in r.splitlines():
+            line = line.strip()
+            m = re.match(r"^\d+[.、)]\s*(.+)$", line)
+            if m:
+                item = m.group(1).strip()
+                if item and "链接：" not in item and "摘要：" not in item:
+                    items.append(item)
+            elif line.startswith("- ") and len(line) > 2:
+                items.append(line[2:].strip())
+        return items
+
+    @staticmethod
+    def _count_reply_list_items(reply: str) -> int:
+        """统计回复中列出的条目数（`1. ` / `2、` / `- ` 开头行）。"""
+        n = 0
+        for line in (reply or "").splitlines():
+            line = line.strip()
+            if re.match(r"^\d+[.、)]", line) or line.startswith("- "):
+                n += 1
+        return n
+
+    def _stage2_has_fabrication(self, reply: str, true_items: list) -> bool:
+        """非空结果下判断回复是否编造填充：
+        - 回复含真实条目 → 比对列表项数（> 真实条数 = 编造）；
+        - 回复不含真实条目且非『没找到』 → 编造/回避（如 QA 实测编造 5 条全为结果外）。
+        """
+        if not true_items or not (reply or "").strip():
+            return False
+        if any(kw in reply for kw in _EMPTY_RESULT_HINTS):
+            return False  # 如实没找到，不判
+        # 条目比对宽松化：去尾斜杠/空白（如真实条目 'AI虚拟人物/' 在回复中常无尾斜杠）
+        reply_flat = re.sub(r"\s+", "", reply)
+        if any(it.strip().strip("/") and it.strip().strip("/") in reply_flat for it in true_items):
+            return self._count_reply_list_items(reply) > len(true_items)
+        return True  # 声称列出但回复中无任何真实条目
+
+    # WO-20260816-37（QA P2）：模板短语表（代码层检测/删除，7B 未完全遵循提示词时兜底）
+    _TEMPLATE_PHRASES = (
+        "今天过得怎么样？我在呢",
+        "今天过得怎么样?我在呢",
+        "今天过得怎么样？",
+        "今天过得怎么样?",
+        "有想聊的就叫我哦",
+        "有想聊的就叫我",
+        "有事儿随时跟我说哦",
+        "有事随时跟我说哦",
+    )
+
+    def _strip_template_phrases(self, reply: str) -> str:
+        """删除回复中高频模板短语（WO-36 提示词约束 7B 未完全遵循，代码层兜底）。
+
+        仅在实际删除了模板短语时才清理残留标点；无模板的回复原样返回（不误伤正常标点）。
+        """
+        r = reply or ""
+        removed = False
+        for p in self._TEMPLATE_PHRASES:
+            if p in r:
+                r = r.replace(p, "")
+                removed = True
+        if not removed:
+            return r
+        r = re.sub(r"[～~。！？]{2,}", "～", r)
+        r = re.sub(r"[，,。]{2,}", "，", r)
+        r = re.sub(r"\s{2,}", " ", r).strip(" ，。！？～")
+        if not r:
+            return "嗯嗯，我在呢～"  # 极端保底（回复全为模板时）
+        return r
 
     # WO-20260816-35：Obsidian 工具参数精确提示（LLM 曾把 path 传成 '30' 而非 '30 · 项目'
     # 导致返回空结果；schema 描述补充完整目录名提示，增强进候选 schema 的深拷贝副本）

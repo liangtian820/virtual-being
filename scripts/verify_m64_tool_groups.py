@@ -162,8 +162,24 @@ def main() -> int:
             # 『写作提升计划/睡眠改善计划/饮食调整指南』等不存在的项目）
             fabricated = [w for w in FABRICATION_SAMPLES if w in (reply or "")]
             no_fabrication = not fabricated
+            # WO-20260816-37（QA P1）：非空结果条目比对——回复列出的条目数不得多于
+            # 工具真实条数，且必须包含真实条目（QA 实测真实仅 1 条『AI虚拟人物/』
+            # 回复编造 5 条；此断言直接对照真实结果）
+            from app.agents.persona_agent import PersonaAgent as _PA
+            true_items = []
+            for e in exec_log:
+                true_items.extend(_PA._extract_true_items(e["result"]))
+            reply_flat = (reply or "").replace(" ", "")
+            items_match = (
+                (not true_items)
+                or (
+                    _PA._count_reply_list_items(reply) <= len(true_items)
+                    and any(it.strip().strip("/") and it.strip().strip("/") in reply_flat
+                           for it in true_items)
+                )
+            )
             if expect == "obsidian":
-                ok = triggered and chinese_ok and reply_faithful and no_fabrication
+                ok = triggered and chinese_ok and reply_faithful and no_fabrication and items_match
             else:
                 ok = triggered and chinese_ok and no_fabrication
             all_ok = all_ok and ok
@@ -172,9 +188,12 @@ def main() -> int:
                 "chinese_no_mojibake": chinese_ok,
                 "reply_conveys_tool_result": reply_faithful,
                 "no_fabrication": no_fabrication,
+                "true_items": true_items,
+                "items_match_true_result": items_match,
             })
             print(f"\n=== {text}")
-            print(f"  triggered={triggered}  chinese_ok={chinese_ok}  tool_calls={call_names}  ({elapsed}s)")
+            print(f"  triggered={triggered}  chinese_ok={chinese_ok}  items_match={items_match}  "
+                  f"tool_calls={call_names}  ({elapsed}s)")
             print(f"  候选 schema 数/轮: {[r['tools_given_count'] for r in rounds_log]}")
             print(f"  reply: {reply[:300]}")
             for e in exec_log:
@@ -224,16 +243,34 @@ def main() -> int:
             print(f"  reply: {reply[:300]}")
             for e in exec_log:
                 print(f"  [exec] {e['name']}({e['arguments']}) -> {e['result'][:160]}")
-        else:  # greeting：语句自然化抽查（『我在呢』/『今天过得怎么样？』不重复出现）
-            greets = (reply or "").count("我在呢")
-            greets_q = (reply or "").count("今天过得怎么样？")
-            natural = greets <= 1 and greets_q <= 1
+        else:  # greeting：语句自然化/模板句消除抽查——6 次采样（QA r5 实测 6/6 模板句）
+            from app.agents.persona_agent import PersonaAgent as _PA
+
+            samples = []
+            template_hits = []
+            for i in range(6):
+                try:
+                    r, _ = agent.chat(text, session_id=f"m64-greet-s{i}")
+                except Exception as exc:
+                    r = f"（chat 异常：{exc}）"
+                samples.append(r)
+                # M6.7 模板组合（代码层已 strip，正常应为 0 命中）
+                for tpl in _PA._TEMPLATE_PHRASES:
+                    if tpl in r:
+                        template_hits.append(tpl)
+            template_free = not template_hits
+            natural = template_free
             ok = natural
             all_ok = all_ok and ok
-            case.update({"natural_wording": natural, "greet_echo_count": greets})
-            print(f"\n=== {text}")
-            print(f"  natural_wording={natural}  greet_echo_count={greets}  ({elapsed}s)")
-            print(f"  reply: {reply[:300]}")
+            case.update({
+                "natural_wording": natural,
+                "template_hits": template_hits,
+                "greeting_samples": samples,
+            })
+            print(f"\n=== {text}（6 次采样）")
+            print(f"  template_free={template_free}  template_hits={template_hits}")
+            for i, r in enumerate(samples, 1):
+                print(f"  [{i}] {r[:120]}")
         evidence["cases"].append(case)
 
     # WO-20260816-34 无工具兜底专项：强制阶段1 不调用工具（模拟 LLM 未选工具），

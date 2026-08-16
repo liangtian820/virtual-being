@@ -269,9 +269,10 @@ def test_no_tool_but_intent_falls_back_to_keyword_route(monkeypatch):
 def test_no_tool_no_intent_uses_llm_reply(monkeypatch):
     agent = _make_agent()
     # "你好呀" 不命中任何可服务意图 → 不进入工具路径，走默认分支（_call_ollama）
-    monkeypatch.setattr(agent, "_call_ollama", lambda *a, **k: "嗯嗯，我在呢，今天过得怎么样？")
+    # （mock 回复用自然语，避免含模板短语被 M6.7 代码层删除）
+    monkeypatch.setattr(agent, "_call_ollama", lambda *a, **k: "嗯嗯，我在呢，想聊点什么呀？")
     reply, _ = agent.chat("你好呀")
-    assert reply == "嗯嗯，我在呢，今天过得怎么样？"
+    assert reply == "嗯嗯，我在呢，想聊点什么呀？"
 
 
 def test_tool_path_exception_falls_back(monkeypatch):
@@ -493,7 +494,7 @@ def test_stage2_prompt_conveys_tool_results(monkeypatch):
 
         def record_stage2(messages, max_tokens=None):
             captured["msgs"] = messages
-            return "好的～"
+            return "知识库里有 AI虚拟人物 文件夹哦"  # 含真实条目，不触发 M6.7 编造重写
 
         monkeypatch.setattr(agent, "_call_ollama_with_tools", lambda *a, **k: next(script))
         monkeypatch.setattr(agent, "_call_ollama", record_stage2)
@@ -706,3 +707,102 @@ def test_character_card_natural_wording():
     speech = " ".join(CHARACTER_CARD["speech_style"])
     assert "轮换使用" in speech and "不套模板" in speech
     assert "句式有变化" in speech
+
+
+# ---------- M6.7（WO-20260816-37）：非空结果防填充 + 模板句消除 ----------
+
+
+def test_extract_true_items():
+    """M6.7：真实条目解析——列表型 JSON 键优先，其次编号文本行。"""
+    from app.agents.persona_agent import PersonaAgent
+
+    assert PersonaAgent._extract_true_items('{"files": ["AI虚拟人物/"]}') == ["AI虚拟人物/"]
+    assert PersonaAgent._extract_true_items('{"files": ["a/", "b/"]}') == ["a/", "b/"]
+    assert PersonaAgent._extract_true_items(
+        "1. DeepSeek 官网\n   链接：https://deepseek.com\n2. 知乎讨论\n   链接：https://zhihu.com"
+    ) == ["DeepSeek 官网", "知乎讨论"]
+    assert PersonaAgent._extract_true_items("已记录：日期 2026-08-17 时间 15:00 事项 喝水") == []
+
+
+def test_stage2_nonempty_fabrication_rewritten(monkeypatch):
+    """M6.7（QA P1）：非空结果（真实仅 1 条）阶段 2 编造多条 → 强制重写仍编造 →
+    固定如实话术（只含真实条目，绝不含编造条目）。"""
+    from app.agents.persona_agent import _FABRICATION_FALLBACK
+    from app.plugins.registry import registry as global_registry
+
+    global_registry.register(
+        "obsidian_vault_list",
+        {"type": "function", "function": {"name": "obsidian_vault_list", "description": "列目录",
+                                          "parameters": {"type": "object", "properties": {}}}},
+        lambda args: '{"files": ["AI虚拟人物/"]}',
+    )
+    try:
+        agent = _make_agent()
+        script = iter([
+            {"content": "", "tool_calls": [
+                {"function": {"name": "obsidian_vault_list", "arguments": {"path": "30 · 项目"}}}]},
+            {"content": "", "tool_calls": None},
+        ])
+        calls = []
+
+        def record(messages, max_tokens=None):
+            calls.append(messages)
+            if len(calls) == 1:
+                return "我帮你查到了，知识库里有以下文档：\n1. AI虚拟人物/\n2. 计算机编程基础/\n3. 心理学入门指南/"
+            return "1. AI虚拟人物/\n2. 数据库管理实践/"  # 重写仍编造
+
+        monkeypatch.setattr(agent, "_call_ollama_with_tools", lambda *a, **k: next(script))
+        monkeypatch.setattr(agent, "_call_ollama", record)
+        reply, _ = agent.chat("列出知识库里 30 项目的文档", session_id="fab-rewrite")
+        assert reply == _FABRICATION_FALLBACK.format(items="AI虚拟人物/")  # 固定话术只含真实条目
+        assert "计算机编程基础" not in reply and "数据库管理实践" not in reply
+        assert "AI虚拟人物" in reply
+        assert len(calls) == 2  # 阶段 2 一次 + 重写一次
+    finally:
+        global_registry.unregister("obsidian_vault_list")
+
+
+def test_stage2_nonempty_honest_reply_kept(monkeypatch):
+    """M6.7：非空结果且回复如实回显真实条目（列表 ≤ N）→ 保留，不触发重写。"""
+    from app.plugins.registry import registry as global_registry
+
+    global_registry.register(
+        "obsidian_vault_list",
+        {"type": "function", "function": {"name": "obsidian_vault_list", "description": "列目录",
+                                          "parameters": {"type": "object", "properties": {}}}},
+        lambda args: '{"files": ["AI虚拟人物/"]}',
+    )
+    try:
+        agent = _make_agent()
+        script = iter([
+            {"content": "", "tool_calls": [
+                {"function": {"name": "obsidian_vault_list", "arguments": {"path": "30 · 项目"}}}]},
+            {"content": "", "tool_calls": None},
+        ])
+        calls = []
+
+        def record(messages, max_tokens=None):
+            calls.append(messages)
+            return "知识库里有一个文件夹叫 AI虚拟人物 哦"
+
+        monkeypatch.setattr(agent, "_call_ollama_with_tools", lambda *a, **k: next(script))
+        monkeypatch.setattr(agent, "_call_ollama", record)
+        reply, _ = agent.chat("列出知识库里 30 项目的文档", session_id="fab-honest")
+        assert reply == "知识库里有一个文件夹叫 AI虚拟人物 哦"
+        assert len(calls) == 1  # 未触发重写
+    finally:
+        global_registry.unregister("obsidian_vault_list")
+
+
+def test_template_phrase_stripped():
+    """M6.7（QA P2）：代码层删除高频模板短语（『今天过得怎么样？我在呢』等）。"""
+    agent = _make_agent()
+    assert "今天过得怎么样？我在呢" not in agent._strip_template_phrases(
+        "你好呀，今天过得怎么样？我在呢～")
+    assert "有想聊的就叫我" not in agent._strip_template_phrases(
+        "嗯嗯～有想聊的就叫我哦。")
+    # 非模板内容保留
+    out = agent._strip_template_phrases("嗯嗯，辛苦啦，先歇一会儿吧。")
+    assert "辛苦啦" in out
+    # 全为模板 → 保底自然语
+    assert agent._strip_template_phrases("今天过得怎么样？我在呢。")
