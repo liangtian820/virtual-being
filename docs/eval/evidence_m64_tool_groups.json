@@ -5,11 +5,8 @@
     {
       "input": "帮我搜一下 DeepSeek 最新新闻",
       "expected_tool_prefix": "web_search",
-      "triggered": true,
-      "chinese_no_mojibake": true,
-      "reply_conveys_tool_result": true,
-      "elapsed_s": 21.99,
-      "reply": "找到了一些关于 DeepSeek 的最新消息呢：\n\n1. 有一篇是 DeepSeek-V4-Pro 的官方版本已经发布，性能提升了不少。\n2. 还有提到 DeepSeek 在深夜悄悄上线了 V4 Pro 正式版模型，性能接近 Fable 5。\n\n这些都是最近几天的信息哦。想了解更多细节可以点开链接看看，里面有更详细的介绍和更新内容。需要帮助的地方尽管说。",
+      "elapsed_s": 52.22,
+      "reply": "嗯嗯，找到了一些关于 DeepSeek 的最新消息。这里有两个链接你可以看看：\n\n1. [DeepSeek| Into the Unknown](https://www.deepseek.com/)\n2. [DeepSeek官网 –DeepSeek官方下载 | 国产开源大模型旗舰...](https://agents-deepseek.com.cn/)\n\n第一个是他们的官网，第二个是关于他们最新发布的 DeepSeek-V4-Pro 的信息。还有其他需要帮忙的吗？",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -22,12 +19,12 @@
           ],
           "tool_calls": [
             {
-              "id": "call_nyvq4asx",
+              "id": "call_6kmza7oc",
               "function": {
                 "index": 0,
                 "name": "web_search",
                 "arguments": {
-                  "query": "DeepSeek 最新"
+                  "query": "DeepSeek 最新新闻"
                 }
               }
             }
@@ -49,20 +46,20 @@
         {
           "name": "web_search",
           "arguments": {
-            "query": "DeepSeek 最新"
+            "query": "DeepSeek 最新新闻"
           },
-          "result": "1. DeepSeek| Into the Unknown\n   链接：https://www.deepseek.com/\n   摘要：2 天之前 · The official version of DeepSeek-V4-Pro has been released, featuring significantly enhanced agent capabilities and …\n2. DeepSeekV4 Pro正式版深夜上线：性能逼近Fable 5，API ...\n   链接：https://www.jzl.com/industry-news/deepseek-v4-pro\n   摘要：3 天之前 · DeepSeek在未进行大规模预热宣传的情况下，悄然通过官方API接口上线了V4 Pro正式版模型。 根据最新的官方文档与价 …\n3. DeepSeek开源模型完整列表 + 下载链接（2026最新）\n   链接：https://deepseekmodel.com/deepseek-models\n   摘要：DeepSeek 开源模型完整列表：DeepSeek V3、DeepSeek R1、DeepSeek Coder、DeepSeek Janus、DeepSeek VL、DeepSeek …"
+          "result": "1. DeepSeek| Into the Unknown\n   链接：https://www.deepseek.com/\n   摘要：2 天之前 · DeepSeek is an AI research company focused on building world-leading general artificial intelligence. We develop and …\n2. DeepSeek官网 –DeepSeek官方下载 | 国产开源大模型旗舰 ...\n   链接：https://agents-deepseek.com.cn/\n   摘要：2 天之前 · DeepSeek官网是国产领先的开源大模型平台，DeepSeek-V4-Pro正式版发布，Agent能力大幅提升，支持 Responses API  …\n3. DeepSeekPlatform\n   链接：https://platform.deepseek.com/\n   摘要：Join DeepSeek API platform to access our AI models, developer resources and API documentation."
         }
-      ]
+      ],
+      "triggered": true,
+      "chinese_no_mojibake": true,
+      "reply_conveys_tool_result": true
     },
     {
       "input": "列出知识库里 30 项目的文档",
       "expected_tool_prefix": "obsidian",
-      "triggered": true,
-      "chinese_no_mojibake": true,
-      "reply_conveys_tool_result": true,
-      "elapsed_s": 11.92,
-      "reply": "30个项目里有“AI虚拟人物”的文件夹呢，里面包含了关于AI的一些资料。需要我再帮你找些什么吗？",
+      "elapsed_s": 18.43,
+      "reply": "好的，知识库里的项目有：\n\n1. AI虚拟人物/",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -79,7 +76,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_gllng3at",
+              "id": "call_cqwbxbfg",
               "function": {
                 "index": 0,
                 "name": "obsidian_vault_list",
@@ -114,8 +111,72 @@
           },
           "result": "{\n  \"files\": [\n    \"AI虚拟人物/\"\n  ]\n}"
         }
-      ]
+      ],
+      "triggered": true,
+      "chinese_no_mojibake": true,
+      "reply_conveys_tool_result": true
+    },
+    {
+      "input": "明天下午3点提醒我喝水",
+      "expected_tool_prefix": "schedule",
+      "elapsed_s": 20.6,
+      "reply": "好的，我已经帮你安排好了。明天下午三点会记得提醒你喝一杯水哦！保持水分很重要呢。有其他事情需要帮忙记录或者提醒的吗？",
+      "tool_call_rounds": [
+        {
+          "round": 1,
+          "tools_given_count": 4,
+          "tools_given": [
+            "get_schedule",
+            "add_schedule",
+            "mark_schedule_done",
+            "delete_schedule"
+          ],
+          "tool_calls": [
+            {
+              "id": "call_02pyhxyi",
+              "function": {
+                "index": 0,
+                "name": "add_schedule",
+                "arguments": {
+                  "text": "明天下午3点提醒我喝水"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "round": 2,
+          "tools_given_count": 4,
+          "tools_given": [
+            "get_schedule",
+            "add_schedule",
+            "mark_schedule_done",
+            "delete_schedule"
+          ],
+          "tool_calls": []
+        }
+      ],
+      "tool_executions": [
+        {
+          "name": "add_schedule",
+          "arguments": {
+            "text": "明天下午3点提醒我喝水"
+          },
+          "result": "已记录：日期 2026-08-17 时间 15:00 事项 喝水"
+        }
+      ],
+      "schedule_recorded": true,
+      "no_fake_promise": true
     }
   ],
+  "no_tool_fallback": {
+    "input": "明天下午3点提醒我喝水（强制 LLM 不选工具）",
+    "schedule_recorded": true,
+    "no_fake_promise": true,
+    "elapsed_s": 6.88,
+    "reply": "好呀，明天下午3点提醒你喝水，我记下啦～记得保持水分哦，对你身体好。",
+    "tool_call_rounds": [],
+    "tool_executions": []
+  },
   "memory_noise_free": true
 }

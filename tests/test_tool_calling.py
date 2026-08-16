@@ -253,9 +253,17 @@ def test_no_tool_but_intent_falls_back_to_keyword_route(monkeypatch):
         {"content": "我帮你查一下！", "tool_calls": None},  # 模型未用工具
     ])
     monkeypatch.setattr(agent, "_call_ollama_with_tools", lambda *a, **k: next(script))
-    monkeypatch.setattr(agent, "_call_ollama", lambda *a, **k: "（知识路由兜底回复）")
+    captured = {}
+
+    def record(messages, max_tokens=None):
+        captured["sys"] = [m["content"] for m in messages if m["role"] == "system"]
+        return "（知识路由兜底回复）"
+
+    monkeypatch.setattr(agent, "_call_ollama", record)
     reply, _ = agent.chat("什么是LangGraph？")
     assert reply == "（知识路由兜底回复）"  # 走了关键词路由（_call_ollama），未用工具路径回复
+    # WO-20260816-34：知识路由兜底真实注入（原 if/elif 死代码下该注入不执行）
+    assert any("知识查询结果" in c for c in captured["sys"])
 
 
 def test_no_tool_no_intent_uses_llm_reply(monkeypatch):
@@ -276,6 +284,75 @@ def test_tool_path_exception_falls_back(monkeypatch):
     monkeypatch.setattr(agent, "_call_ollama", lambda *a, **k: "（异常兜底回复）")
     reply, _ = agent.chat("明天下午3点提醒我喝水")
     assert reply == "（异常兜底回复）"
+
+
+# ---------- WO-20260816-34（QA C03 P1）：工具路径未用工具 → 关键词路由兜底真实执行 ----------
+
+
+def test_tool_no_call_schedule_still_recorded(monkeypatch):
+    """WO-20260816-34：工具路径无 tool_calls 时，关键词路由兜底真实执行（日程落库副作用），
+    上下文注入 [日程已添加]——修复 if/elif 死代码（原行为 add 不调用、模型假完成承诺）。"""
+    agent = _make_agent()
+    monkeypatch.setattr(agent, "_call_ollama_with_tools",
+                        lambda *a, **k: {"content": "", "tool_calls": None})
+    captured = {}
+
+    def record(messages, max_tokens=None):
+        captured["sys"] = [m["content"] for m in messages if m["role"] == "system"]
+        return "好呀，明天下午3点提醒你喝水，我记下啦～"
+
+    monkeypatch.setattr(agent, "_call_ollama", record)
+    reply, _ = agent.chat("明天下午3点提醒我喝水", session_id="no-tool-sched")
+    assert agent._scheduler.added == ["明天下午3点提醒我喝水"]  # 日程真实落库（副作用发生）
+    assert any("[日程已添加]" in c for c in captured["sys"])    # 兜底上下文真实注入
+    assert "好呀" in reply
+
+
+def test_tool_no_call_web_fallback_runs(monkeypatch):
+    """WO-20260816-34：工具路径无 tool_calls 时，联网搜索确定性兜底真实执行（非死代码）。"""
+    agent = _make_agent()
+    monkeypatch.setattr(agent, "_call_ollama_with_tools",
+                        lambda *a, **k: {"content": "", "tool_calls": None})
+    calls = []
+    monkeypatch.setattr("app.tools.web_search.search_text",
+                        lambda q, timeout=10: calls.append(q) or "1. 测试标题\n   链接：https://example.com")
+    captured = {}
+
+    def record(messages, max_tokens=None):
+        captured["sys"] = [m["content"] for m in messages if m["role"] == "system"]
+        return "好的～"
+
+    monkeypatch.setattr(agent, "_call_ollama", record)
+    agent.chat("帮我搜一下 DeepSeek 最新新闻", session_id="no-tool-web")
+    assert calls == ["DeepSeek 最新新闻"]                          # 搜索真实执行（关键词正确提取）
+    assert any("[搜索结果]" in c for c in captured["sys"])         # 搜索结果真实注入
+
+
+def test_tool_no_call_obsidian_fallback_runs(monkeypatch):
+    """WO-20260816-34：工具路径无 tool_calls 时，知识库确定性兜底真实执行（非死代码）。"""
+    from app.plugins.registry import registry as global_registry
+
+    global_registry.register(
+        "obsidian_vault_list",
+        {"type": "function", "function": {"name": "obsidian_vault_list", "description": "列目录",
+                                          "parameters": {"type": "object", "properties": {}}}},
+        lambda args: "['30 · 项目/', 'AGENTS.md']",
+    )
+    try:
+        agent = _make_agent()
+        monkeypatch.setattr(agent, "_call_ollama_with_tools",
+                            lambda *a, **k: {"content": "", "tool_calls": None})
+        captured = {}
+
+        def record(messages, max_tokens=None):
+            captured["sys"] = [m["content"] for m in messages if m["role"] == "system"]
+            return "好的～"
+
+        monkeypatch.setattr(agent, "_call_ollama", record)
+        agent.chat("列出知识库里 30 项目的文档", session_id="no-tool-obs")
+        assert any("知识库根目录" in c and "30 · 项目" in c for c in captured["sys"])  # 兜底真实注入
+    finally:
+        global_registry.unregister("obsidian_vault_list")
 
 
 # ---------- M6.2：防重复执行 / 历史注入 / 防假完成指引 ----------

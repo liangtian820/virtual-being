@@ -384,9 +384,45 @@ class PersonaAgent:
                     self._memory_long.add(kind, content, source_session=sid)
                 self._memory.append(sid, "assistant", reply)
                 return reply, sid
-        # M6.4 意图路由：知识库/笔记（Obsidian MCP 领域）——工具路径未用工具时的
-        # 确定性兜底：列知识库根目录注入真实数据（保底真实，不编造）。
-        elif is_obsidian_query(user_input):
+        # WO-20260816-34（QA C03 P1 结构性修复）：工具路径进入但 LLM 未用工具/未执行时，
+        # 显式执行关键词路由链——原 if/elif 结构下（if 条件为真 → elif 整体跳过）确定性兜底
+        # 是死代码：『明天下午3点提醒我喝水』在 LLM 未选工具时 add_schedule 不执行、
+        # 日程不落库、模型假完成承诺『我会在明天下午三点提醒你』（突破防假完成红线）。
+        # 非危机 / 未开工具 / 无意图时同样进入（保持原 else 分支行为）。
+        self._route_by_keywords(messages, user_input)
+        messages.extend(self._memory.load(sid))
+        # M3 长期记忆提取（P3-4）：先提取、再落库（finally），即使 Ollama 抛异常，
+        # 本次用户事实/话题也不丢失。
+        extracted = extract_memories(user_input)
+        try:
+            reply = self._call_ollama(messages, max_tokens)
+        finally:
+            for kind, content in extracted:
+                self._memory_long.add(kind, content, source_session=sid)
+        # M4.4（WO-20260816-21）：危机路径代码层强制专业求助引导——
+        # 不依赖 3b 是否遵循提示词；LLM 已含求助线索则跳过（防重复）。
+        if is_crisis_query(user_input):
+            reply = ensure_crisis_help(reply)
+        self._memory.append(sid, "assistant", reply)
+        return reply, sid
+
+    def _route_by_keywords(self, messages: List[dict], user_input: str) -> None:
+        """关键词路由链（M2/M3/M5.1/M6.4）：按意图注入确定性上下文/执行确定性操作。
+
+        仅注入（或执行落库等副作用），不生成回复——回复由 chat() 统一调用 _call_ollama。
+
+        WO-20260816-34（QA C03 P1 结构性修复）：自 chat() 的 elif 链抽出。原 if/elif
+        结构下，工具路径进入（意图命中）但 LLM 未用工具/未执行时，if 条件为真 → 整个
+        elif 链被跳过，确定性兜底（日程落库/联网搜索/知识库目录）成为死代码，模型只能
+        自由发挥（如『我会在明天下午三点提醒你』假完成承诺）。抽出后由 chat() 显式调用，
+        保证兜底真实生效。
+
+        分支互斥（if/elif）：命中第一个意图分支即注入，与既有路由顺序一致：
+        知识库/笔记 → 知识 → 联网搜索 → 计算 → 记忆 → 规划 → 日程 → 普通对话。
+        """
+        # M6.4 意图路由：知识库/笔记（Obsidian MCP 领域）——确定性兜底：
+        # 列知识库根目录注入真实数据（保底真实，不编造）。
+        if is_obsidian_query(user_input):
             if tool_registry.has("obsidian_vault_list"):
                 try:
                     listing = tool_registry.call("obsidian_vault_list", {"path": "/"})
@@ -425,8 +461,8 @@ class PersonaAgent:
                                "按查询结果如实写）；"
                                "③ 专业术语拼写要准确，不编造：\n" + context,
                 })
-        # M6.4 意图路由：联网搜索——工具路径未用工具时的确定性兜底：
-        # 直接执行 web_search 注入真实结果（保底真实资讯，不编造）。
+        # M6.4 意图路由：联网搜索——确定性兜底：直接执行 web_search 注入真实结果
+        # （保底真实资讯，不编造）。
         elif is_web_search_query(user_input):
             query = extract_search_query(user_input)
             try:
@@ -566,21 +602,6 @@ class PersonaAgent:
                                "说明你只能在对话里帮忙，再转向你能做的小事；"
                                "绝不答应『我帮你操作/直接搞定』，也绝不假装已经做完了没做过的事。",
                 })
-        messages.extend(self._memory.load(sid))
-        # M3 长期记忆提取（P3-4）：先提取、再落库（finally），即使 Ollama 抛异常，
-        # 本次用户事实/话题也不丢失。
-        extracted = extract_memories(user_input)
-        try:
-            reply = self._call_ollama(messages, max_tokens)
-        finally:
-            for kind, content in extracted:
-                self._memory_long.add(kind, content, source_session=sid)
-        # M4.4（WO-20260816-21）：危机路径代码层强制专业求助引导——
-        # 不依赖 3b 是否遵循提示词；LLM 已含求助线索则跳过（防重复）。
-        if is_crisis_query(user_input):
-            reply = ensure_crisis_help(reply)
-        self._memory.append(sid, "assistant", reply)
-        return reply, sid
 
     def _call_ollama(self, messages: List[dict], max_tokens: Optional[int] = None) -> str:
         """调用 Ollama /api/chat（非流式）。
