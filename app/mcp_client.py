@@ -61,6 +61,11 @@ class MCPClient:
             self._session_id = sid
         if want_id is None:
             return {}
+        # M6.4（WO-20260816-32 补充）：MCP 响应为 text/event-stream 且常无 charset，
+        # requests 对 text/* 无 charset 默认按 ISO-8859-1 解码 → 中文乱码
+        # （实测 obsidian_vault_list 返回的『AI虚拟人物/』变 'AIè™æ‹Ÿäººç‰©/'）。
+        # JSON-RPC 协议规定内容为 UTF-8，这里硬设 UTF-8（errors=replace 兜底）。
+        resp.encoding = "utf-8"
         return _parse_sse_id(resp.text, want_id) or {}
 
     def connect(self) -> bool:

@@ -11,6 +11,7 @@
 """
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -22,6 +23,11 @@ try:
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
+# QA 实测（docs/acceptance_m64.md 四-3）：本机系统代理 127.0.0.1:26561 会让 requests
+# 对 localhost（Ollama/MCP）返回 404、对 Bing 报 SSL 证书错误；验证需 NO_PROXY 直连。
+# 尊重已有 NO_PROXY 配置，未设置时才写入（requests 每次请求读取环境，置顶即可生效）。
+os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost,bing.com,www.bing.com")
+os.environ.setdefault("no_proxy", "127.0.0.1,localhost,bing.com,www.bing.com")
 
 # 强制开启 LLM 工具调用（验收条件：TOOL_CALLING_ENABLED=1）
 os.environ["TOOL_CALLING_ENABLED"] = "1"
@@ -94,11 +100,18 @@ def main() -> int:
             for r in rounds_log for c in (r.get("tool_calls") or [])
         ]
         triggered = any(cn and cn.startswith(expected_prefix) for cn in call_names)
-        all_ok = all_ok and triggered
+        # 验收追加：obsidian 工具返回内容中文不乱码（含 CJK 即解码正确；
+        # 若仍按 Latin-1 解码，中文 UTF-8 字节会变成 è™æ‹Ÿ 等非 CJK 字符）
+        exec_text = " ".join(e["result"] for e in exec_log)
+        chinese_ok = (not exec_text) or bool(re.search(r"[\u4e00-\u9fff]", exec_text))
+        if expected_prefix == "obsidian" and not exec_text:
+            chinese_ok = False  # obsidian 场景必须真实执行出结果
+        all_ok = all_ok and triggered and chinese_ok
         case = {
             "input": text,
             "expected_tool_prefix": expected_prefix,
             "triggered": triggered,
+            "chinese_no_mojibake": chinese_ok,
             "elapsed_s": elapsed,
             "reply": reply,
             "tool_call_rounds": list(rounds_log),   # 快照拷贝（下一轮会 clear 原列表）
@@ -106,7 +119,7 @@ def main() -> int:
         }
         evidence["cases"].append(case)
         print(f"\n=== {text}")
-        print(f"  triggered={triggered}  tool_calls={call_names}  ({elapsed}s)")
+        print(f"  triggered={triggered}  chinese_ok={chinese_ok}  tool_calls={call_names}  ({elapsed}s)")
         print(f"  候选 schema 数/轮: {[r['tools_given_count'] for r in rounds_log]}")
         print(f"  reply: {reply[:300]}")
         for e in exec_log:
@@ -116,7 +129,7 @@ def main() -> int:
     with open(EVIDENCE_PATH, "w", encoding="utf-8") as f:
         json.dump(evidence, f, ensure_ascii=False, indent=2)
     print(f"\n证据已写入 {EVIDENCE_PATH}")
-    print(f"验收结论：{'PASS（两个场景均有 tool_calls 证据）' if all_ok else 'FAIL'}")
+    print(f"验收结论：{'PASS（两个场景均有 tool_calls 证据，obsidian 中文不乱码）' if all_ok else 'FAIL'}")
     return 0 if all_ok else 1
 
 

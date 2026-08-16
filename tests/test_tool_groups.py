@@ -172,3 +172,18 @@ def test_is_obsidian_query_hits(text):
 ])
 def test_is_obsidian_query_misses(text):
     assert not is_obsidian_query(text)
+
+
+# ---------- QA P2：新意图不落 topic（记忆噪音回归） ----------
+
+
+@pytest.mark.parametrize("text", [
+    "帮我搜一下 DeepSeek 最新新闻",
+    "列出知识库里 30 项目的文档",
+])
+def test_web_obsidian_intents_not_recorded_as_topic(text):
+    """QA P2：联网搜索/知识库查询是请求不是用户陈述，不应记为长期话题（回归自 M6.4）。"""
+    from app.agents.persona_agent import extract_memories
+
+    hits = extract_memories(text)
+    assert not any(k == "topic" for k, _ in hits), f"{text!r} 不应记为 topic: {hits}"

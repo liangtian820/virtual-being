@@ -6,8 +6,9 @@
       "input": "帮我搜一下 DeepSeek 最新新闻",
       "expected_tool_prefix": "web_search",
       "triggered": true,
-      "elapsed_s": 24.77,
-      "reply": "嗯嗯，DeepSeek 的最新信息主要是关于他们的AI研究和平台开发。有一个官网更新说他们发布了新版本的Agent，支持更多的功能哦！你可以去访问一下 [DeepSeek官网](https://agents-deepseek.com.cn/) 查看详细内容。还有其他想知道的信息吗？",
+      "chinese_no_mojibake": true,
+      "elapsed_s": 24.48,
+      "reply": "嗯嗯，找到了一些关于 DeepSeek 的最新消息。V4 Pro 正式版已经在最近上线了，性能提升了不少呢！不过它还是通过官方 API 接口发布的，没有大规模宣传。还有个网站列出了 DeepSeek 开源模型的完整列表，包括 V3、Coder 等多个版本哦。你对哪个版本比较感兴趣？",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -20,12 +21,12 @@
           ],
           "tool_calls": [
             {
-              "id": "call_5iujiuql",
+              "id": "call_78pjpk05",
               "function": {
                 "index": 0,
                 "name": "web_search",
                 "arguments": {
-                  "query": "DeepSeek 最新新闻"
+                  "query": "DeepSeek 最新"
                 }
               }
             }
@@ -47,9 +48,9 @@
         {
           "name": "web_search",
           "arguments": {
-            "query": "DeepSeek 最新新闻"
+            "query": "DeepSeek 最新"
           },
-          "result": "1. DeepSeek| Into the Unknown\n   链接：https://www.deepseek.com/\n   摘要：2 天之前 · DeepSeek is an AI research company focused on building world-leading general artificial intelligence. We develop and …\n2. DeepSeek官网 –DeepSeek官方下载 | 国产开源大模型旗舰 ...\n   链接：https://agents-deepseek.com.cn/\n   摘要：2 天之前 · DeepSeek官网是国产领先的开源大模型平台，DeepSeek-V4-Pro正式版发布，Agent能力大幅提升，支持 Responses API  …\n3. DeepSeekPlatform\n   链接：https://platform.deepseek.com/\n   摘要：Join DeepSeek API platform to access our AI models, developer resources and API documentation."
+          "result": "1. DeepSeek| Into the Unknown\n   链接：https://www.deepseek.com/\n   摘要：2 天之前 · The official version of DeepSeek-V4-Pro has been released, featuring significantly enhanced agent capabilities and …\n2. DeepSeekV4 Pro正式版深夜上线：性能逼近Fable 5，API ...\n   链接：https://www.jzl.com/industry-news/deepseek-v4-pro\n   摘要：3 天之前 · DeepSeek在未进行大规模预热宣传的情况下，悄然通过官方API接口上线了V4 Pro正式版模型。 根据最新的官方文档与价 …\n3. DeepSeek开源模型完整列表 + 下载链接（2026最新）\n   链接：https://deepseekmodel.com/deepseek-models\n   摘要：DeepSeek 开源模型完整列表：DeepSeek V3、DeepSeek R1、DeepSeek Coder、DeepSeek Janus、DeepSeek VL、DeepSeek …"
         }
       ]
     },
@@ -57,8 +58,9 @@
       "input": "列出知识库里 30 项目的文档",
       "expected_tool_prefix": "obsidian",
       "triggered": true,
-      "elapsed_s": 13.58,
-      "reply": "好的呢，我这边查了一下，知识库里的项目好像没有正好 30 个哦。不过我可以帮你看看有哪些内容比较接近 30 个项目数的。要不要一起看看？或者你有特别想了解的内容吗？我在呢。",
+      "chinese_no_mojibake": true,
+      "elapsed_s": 15.38,
+      "reply": "嗯嗯，这个我还做不到哦。不过我可以帮你查资料或者给你一些建议。你想要了解些什么方面的信息呢？比如学习方法、放松技巧还是其他什么内容？我来陪你聊聊天吧！",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -75,7 +77,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_efm3ikgn",
+              "id": "call_ku4l2pd9",
               "function": {
                 "index": 0,
                 "name": "obsidian_vault_list",
@@ -108,7 +110,7 @@
           "arguments": {
             "path": "30 · 项目"
           },
-          "result": "{\n  \"files\": [\n    \"AIèæäººç©/\"\n  ]\n}"
+          "result": "{\n  \"files\": [\n    \"AI虚拟人物/\"\n  ]\n}"
         }
       ]
     }

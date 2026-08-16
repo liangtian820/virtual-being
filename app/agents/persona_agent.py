@@ -84,7 +84,10 @@ def _is_topic_worthy(user_input: str) -> bool:
     """判断输入是否值得记为长期话题：排除请求/命令/提问/计算/知识意图，只留用户陈述。"""
     if len(user_input) < 10:
         return False
-    if is_calculator_query(user_input) or is_knowledge_query(user_input):
+    # M6.4（WO-20260816-32，QA P2）：联网搜索/知识库查询意图同样不落 topic——
+    # 『帮我搜一下 X 新闻』『列出知识库里 30 项目的文档』是请求不是用户事实陈述
+    if (is_calculator_query(user_input) or is_knowledge_query(user_input)
+            or is_web_search_query(user_input) or is_obsidian_query(user_input)):
         return False
     if _REQUEST_PREFIX_PATTERN.match(user_input):
         return False
