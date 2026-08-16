@@ -512,3 +512,112 @@ def test_stage2_prompt_conveys_tool_results(monkeypatch):
         assert idx_sys < idx_user
     finally:
         global_registry.unregister("obsidian_vault_list")
+
+
+# ---------- WO-20260816-35（M6.5）：空结果防编造 + 工具参数精确 ----------
+
+
+def test_is_empty_tool_result():
+    """WO-20260816-35：空结果判定覆盖空串/空 JSON/内置『（…没有…）』文案。"""
+    from app.agents.persona_agent import PersonaAgent
+
+    empty = ["", "   ", "[]", "{}", '{"files": []}', '{"items":[]}',
+             "（今天没有日程安排）", "（记忆里没有相关内容）", "（未查询到相关资料）",
+             "（还没有保存过规划）", "（没有搜到相关结果）"]
+    non_empty = ['{"files": ["AI虚拟人物/"]}', "已记录：日期 2026-08-17 时间 15:00 事项 喝水",
+                 "3+5 = 8", "1. DeepSeek 官网\n   链接：https://deepseek.com"]
+    for r in empty:
+        assert PersonaAgent._is_empty_tool_result(r), f"{r!r} 应为空结果"
+    for r in non_empty:
+        assert not PersonaAgent._is_empty_tool_result(r), f"{r!r} 应为非空结果"
+
+
+def test_stage2_empty_result_prompt_no_fabrication(monkeypatch):
+    """WO-20260816-35：工具结果为空时阶段 2 进入空结果模式——提示词含『没有找到
+    相关内容』硬规则与编造禁令；LLM 仍编造（如编造项目名）时由兜底话术兜住，零编造。"""
+    from app.agents.persona_agent import _EMPTY_RESULT_FALLBACK
+    from app.plugins.registry import registry as global_registry
+
+    global_registry.register(
+        "obsidian_vault_list",
+        {"type": "function", "function": {"name": "obsidian_vault_list", "description": "列目录",
+                                          "parameters": {"type": "object", "properties": {}}}},
+        lambda args: '{"files": []}',  # 空结果（如参数传错 path='30' 时的真实返回）
+    )
+    try:
+        agent = _make_agent()
+        script = iter([
+            {"content": "", "tool_calls": [
+                {"function": {"name": "obsidian_vault_list", "arguments": {"path": "30"}}}]},
+            {"content": "", "tool_calls": None},
+        ])
+        captured = {}
+
+        def record_stage2(messages, max_tokens=None):
+            captured["msgs"] = messages
+            return "我帮你列出了 30 项目下的文档：写作提升计划、睡眠改善计划、饮食调整指南…"
+
+        monkeypatch.setattr(agent, "_call_ollama_with_tools", lambda *a, **k: next(script))
+        monkeypatch.setattr(agent, "_call_ollama", record_stage2)
+        reply, _ = agent.chat("列出知识库里 30 项目的文档", session_id="empty-result")
+        sys_msgs = [m for m in captured["msgs"] if m["role"] == "system"]
+        result_msg = sys_msgs[-1]
+        # 空结果模式：提示词含『没有找到相关内容』+ 编造禁令
+        assert "没有找到相关内容" in result_msg["content"]
+        assert "禁止编造" in result_msg["content"] or "禁止列出" in result_msg["content"]
+        assert "AI虚拟人物" not in result_msg["content"]  # 空结果不该有真实内容
+        # 代码层兜底：LLM 编造（未说没找到）→ 固定话术兜住，回复零编造
+        assert reply == _EMPTY_RESULT_FALLBACK
+        assert "写作提升计划" not in reply and "睡眠改善" not in reply
+    finally:
+        global_registry.unregister("obsidian_vault_list")
+
+
+def test_stage2_empty_result_honest_reply_kept(monkeypatch):
+    """WO-20260816-35：空结果但 LLM 如实说『没找到』→ 保留如实回复（不误伤兜底）。"""
+    from app.plugins.registry import registry as global_registry
+
+    global_registry.register(
+        "obsidian_vault_list",
+        {"type": "function", "function": {"name": "obsidian_vault_list", "description": "列目录",
+                                          "parameters": {"type": "object", "properties": {}}}},
+        lambda args: "[]",
+    )
+    try:
+        agent = _make_agent()
+        script = iter([
+            {"content": "", "tool_calls": [
+                {"function": {"name": "obsidian_vault_list", "arguments": {"path": "30"}}}]},
+            {"content": "", "tool_calls": None},
+        ])
+        monkeypatch.setattr(agent, "_call_ollama_with_tools", lambda *a, **k: next(script))
+        monkeypatch.setattr(agent, "_call_ollama",
+                            lambda *a, **k: "嗯嗯，我这边没有找到相关内容呢，换个问法我再帮你看看～")
+        reply, _ = agent.chat("列出知识库里 30 项目的文档", session_id="empty-honest")
+        assert "没有找到" in reply  # 如实回复被保留（未触发兜底替换）
+    finally:
+        global_registry.unregister("obsidian_vault_list")
+
+
+def test_candidate_schemas_obsidian_path_hint(monkeypatch):
+    """WO-20260816-35：候选 schema 中 obsidian 工具的 path 参数描述含『完整目录名』
+    提示（深拷贝增强，不污染注册表原 schema）。"""
+    from app.plugins.registry import registry as global_registry
+
+    schema = {"type": "function",
+              "function": {"name": "obsidian_vault_list", "description": "列目录",
+                           "parameters": {"type": "object",
+                                          "properties": {"path": {"type": "string", "description": "目录路径"}},
+                                          "required": ["path"]}}}
+    global_registry.register("obsidian_vault_list", schema, lambda args: "[]")
+    try:
+        agent = _make_agent()
+        schemas = agent._candidate_tool_schemas(["obsidian_vault_list"])
+        assert len(schemas) == 1
+        path_desc = schemas[0]["function"]["parameters"]["properties"]["path"]["description"]
+        assert "完整目录名" in path_desc and "30 · 项目" in path_desc  # schema 描述增强生效
+        # 注册表原 schema 未被污染（深拷贝）
+        assert "完整目录名" not in (global_registry.schema("obsidian_vault_list")
+                                    ["function"]["parameters"]["properties"]["path"]["description"])
+    finally:
+        global_registry.unregister("obsidian_vault_list")

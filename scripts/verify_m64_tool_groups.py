@@ -46,6 +46,9 @@ EVIDENCE_PATH = os.path.join("docs", "eval", "evidence_m64_tool_groups.json")
 # WO-20260816-34：假完成承诺句式（QA C03 复现『我会在明天下午三点提醒你喝水的…』）
 FAKE_PROMISE_KWS = ("我会在", "我会提醒", "我会准时", "明天下午三点提醒你", "我会记得提醒")
 
+# WO-20260816-35：编造条目样本词（用户/QA 实测：空结果时 LLM 曾编造这些不存在的项目）
+FABRICATION_SAMPLES = ("写作提升", "睡眠改善", "饮食调整", "提升计划", "改善计划", "调整指南")
+
 
 def _sched_count(agent) -> int:
     """隔离日程库现有条目数（今日 + 明日）。"""
@@ -148,15 +151,20 @@ def main() -> int:
             # 不回避、不说『做不到/没有记录』（修复前回复为『这个我还做不到哦』）
             result_frags = re.findall(r"[\u4e00-\u9fff]{2,}", exec_text)
             reply_faithful = (not result_frags) or any(f in (reply or "") for f in result_frags)
+            # WO-20260816-35：零编造——回复不得含编造条目词（实测 LLM 曾编造
+            # 『写作提升计划/睡眠改善计划/饮食调整指南』等不存在的项目）
+            fabricated = [w for w in FABRICATION_SAMPLES if w in (reply or "")]
+            no_fabrication = not fabricated
             if expect == "obsidian":
-                ok = triggered and chinese_ok and reply_faithful
+                ok = triggered and chinese_ok and reply_faithful and no_fabrication
             else:
-                ok = triggered and chinese_ok
+                ok = triggered and chinese_ok and no_fabrication
             all_ok = all_ok and ok
             case.update({
                 "triggered": triggered,
                 "chinese_no_mojibake": chinese_ok,
                 "reply_conveys_tool_result": reply_faithful,
+                "no_fabrication": no_fabrication,
             })
             print(f"\n=== {text}")
             print(f"  triggered={triggered}  chinese_ok={chinese_ok}  tool_calls={call_names}  ({elapsed}s)")
@@ -198,6 +206,49 @@ def main() -> int:
     print(f"  schedule_recorded={recorded2}  no_fake_promise={not fake2}  ({elapsed2}s)")
     print(f"  reply: {reply2[:300]}")
 
+    # WO-20260816-35 空结果防编造专项：把 obsidian_vault_list 临时替换为返回空结果
+    # 的 handler（模拟参数传错 path='30' 的 {'files': []}），固定工具调用后由真实 LLM
+    # 走阶段 2 空结果模式——必须如实『没有找到』，禁止编造任何项目条目
+    empty_schema = registry.schema("obsidian_vault_list")
+    registry.unregister("obsidian_vault_list")
+    registry.register(
+        "obsidian_vault_list",
+        empty_schema or {"type": "function", "function": {"name": "obsidian_vault_list",
+                                                          "description": "列目录",
+                                                          "parameters": {"type": "object", "properties": {}}}},
+        lambda args: '{"files": []}',
+    )
+    orig_tools_call3 = agent._call_ollama_with_tools
+    forced = iter([
+        {"content": "", "tool_calls": [
+            {"function": {"name": "obsidian_vault_list", "arguments": {"path": "30"}}}]},
+        {"content": "", "tool_calls": None},
+    ])
+    agent._call_ollama_with_tools = lambda *a, **k: next(forced)
+    rounds_log.clear()
+    exec_log.clear()
+    t0 = time.time()
+    reply3, _ = agent.chat("列出知识库里 30 项目的文档", session_id="m64-empty-result")
+    elapsed3 = round(time.time() - t0, 2)
+    agent._call_ollama_with_tools = orig_tools_call3
+    empty_honest = any(kw in (reply3 or "") for kw in ("没有找到", "没找到", "没查到",
+                                                       "没有相关内容", "查不到", "没有搜到"))
+    fabricated3 = [w for w in FABRICATION_SAMPLES if w in (reply3 or "")]
+    empty_ok = empty_honest and not fabricated3
+    all_ok = all_ok and empty_ok
+    evidence["empty_result_no_fabrication"] = {
+        "input": "列出知识库里 30 项目的文档（vault_list 返回空 {" + '"files": []' + "}）",
+        "honest_not_found": empty_honest,
+        "fabricated_samples": fabricated3,
+        "elapsed_s": elapsed3,
+        "reply": reply3,
+        "tool_call_rounds": list(rounds_log),
+        "tool_executions": list(exec_log),
+    }
+    print(f"\n=== 空结果防编造专项（vault_list 返回空）")
+    print(f"  honest_not_found={empty_honest}  fabricated={fabricated3}  ({elapsed3}s)")
+    print(f"  reply: {reply3[:300]}")
+
     # WO-20260816-33 QA P2：搜索/知识库请求不落 topic（隔离库实测，修复前
     # 『列出知识库里 30 项目的文档』被记为 topic 造成记忆噪音）
     recent = agent._memory_long.recent(limit=50)
@@ -214,7 +265,7 @@ def main() -> int:
         json.dump(evidence, f, ensure_ascii=False, indent=2)
     print(f"\n记忆噪音检查：{'PASS（搜索/知识库请求未落 topic）' if memory_clean else 'FAIL: ' + str(noise)}")
     print(f"\n证据已写入 {EVIDENCE_PATH}")
-    print(f"验收结论：{'PASS（tool_calls + 中文不乱码 + 回复如实回显 + 日程落库/无假承诺 + 无工具兜底生效 + 无记忆噪音）' if all_ok else 'FAIL'}")
+    print(f"验收结论：{'PASS（tool_calls + 中文不乱码 + 回复如实回显 + 日程落库/无假承诺 + 无工具兜底生效 + 空结果零编造 + 无记忆噪音）' if all_ok else 'FAIL'}")
     return 0 if all_ok else 1
 
 

@@ -292,6 +292,15 @@ def ensure_crisis_help(reply: str) -> str:
     return f"{reply}\n{_CRISIS_HELP_SUFFIX}"
 
 
+# M6.5（WO-20260816-35）：空工具结果防编造——阶段 2 空结果模式下，回复必须含
+# 『没找到/没查到』语义（不含则代码层兜底替换）；兜底话术固定人设口吻，绝对零编造。
+_EMPTY_RESULT_HINTS = (
+    "没有找到", "没找到", "没查到", "没有相关内容", "查不到",
+    "没有搜到", "没搜到", "这个还查不到", "还没有", "没有记录",
+)
+_EMPTY_RESULT_FALLBACK = "嗯嗯，我这边没有找到相关内容呢，换个说法我再帮你看看～"
+
+
 class PersonaAgent:
     """人格 Agent：人设注入 + 会话记忆 + 意图路由 + Ollama 推理。"""
 
@@ -777,6 +786,11 @@ class PersonaAgent:
                 "要在知识库里搜索用 obsidian_search_simple，要保存/修改笔记用 obsidian_vault_write / obsidian_vault_patch 等；"
                 "不要凭空编造知识库内容，一律用工具拿真实数据。"
             )
+            # WO-20260816-35：路径参数精确提示（LLM 曾把 path 传成 '30' 而非 '30 · 项目' 导致空结果）
+            lines.append(
+                "- obsidian 路径参数要用完整目录名（如 '30 · 项目'，含中文空格与序号前缀，"
+                "不要缩写为 '30'）；'/' 表示知识库根目录。"
+            )
         lines.append("- 只有用户请求确实对应某个工具时才调用；闲聊、情绪陪伴等不需要工具时直接温柔回复即可。")
         lines.append("- 重要：绝对不要在没有调用工具并确认工具返回成功的情况下，"
                      "声称『已经记下了/已删除/已标记完成/已保存/已查到』；"
@@ -788,6 +802,8 @@ class PersonaAgent:
         """按候选工具名裁剪 schema：内置集 + 注册表（含插件/MCP）按名取，缺失跳过。
 
         26 个工具仍全部在注册表（可插拔不丢），只是本轮只把候选组 schema 交给 LLM。
+        WO-20260816-35：外部（Obsidian）工具 schema 深拷贝增强——给 path/query 参数
+        描述补充『完整目录名』提示（服务器原始描述缺失，LLM 曾传短名 '30' 导致空结果）。
         """
         by_name = {s["function"]["name"]: s for s in get_tool_specs()}
         schemas = []
@@ -797,8 +813,26 @@ class PersonaAgent:
             else:
                 ext = tool_registry.schema(n)
                 if ext:
-                    schemas.append(ext)
+                    schemas.append(PersonaAgent._enhance_ext_schema(n, ext))
         return schemas
+
+    @staticmethod
+    def _enhance_ext_schema(name: str, schema: dict) -> dict:
+        """深拷贝外部工具 schema 并给 path/query 参数追加精确提示（不污染注册表原对象）。"""
+        import copy
+
+        s = copy.deepcopy(schema)
+        fn = s.get("function", {})
+        props = (fn.get("parameters") or {}).get("properties") or {}
+        hints = PersonaAgent._OBSIDIAN_ARG_HINTS
+        for pname, prop in props.items():
+            if not isinstance(prop, dict):
+                continue
+            if pname == "path" and "path" in hints:
+                prop["description"] = (prop.get("description") or "") + hints["path"]
+            elif pname in ("query", "q", "query_string", "queryText") and "query" in hints:
+                prop["description"] = (prop.get("description") or "") + hints["query"]
+        return s
 
     def _try_tool_calling(self, user_input: str, messages: List[dict],
                           history: Optional[List[dict]] = None,
@@ -876,30 +910,85 @@ class PersonaAgent:
             # 7B 面对 JSON 结果仍回复『这个我还做不到哦/我这边好像没有那次的记录呢』，
             # 用户看不到 vault 真实内容。改为：结果指令在前（声明结果已真实拿到、
             # 逐条念出目录/文件名、禁止『做不到/没查到/没有记录』式回避），用户输入在后。
+            # WO-20260816-35：工具结果为空时切换『空结果模式』——如实『没查到』零编造
+            # （实测：参数传错返回 {"files": []} 时，阶段 2 曾编造 11 条不存在的项目，
+            # 违反 R8 不编造红线）。
             tool_results = self._format_tool_results(stage1)
-            msgs2 = list(messages) + [
-                {
-                    "role": "system",
-                    "content": "用户刚才的请求已经通过内部能力成功执行，真实结果见下方【执行结果】。\n"
-                               "请直接把结果内容讲给用户，规则：\n"
-                               "① 结果里有目录/文件名/列表/条目时，逐条如实念出来（如『30 · 项目 里有 AI虚拟人物 文件夹』）；\n"
-                               "② 结果就是真实答案，绝对不要说自己做不到、不要说『我这边没有记录/查不到』、"
-                               "不要回避、不要编造结果之外的内容；\n"
-                               "③ 用温柔治愈的口吻，简短口语，不要提『工具』『函数』『系统』『内部』等词。\n"
-                               "【执行结果】\n" + tool_results,
-                },
-                {"role": "user", "content": user_input},
-            ]
+            tool_msgs = [m for m in stage1 if m["role"] == "tool"]
+            empty_results = bool(tool_msgs) and all(
+                self._is_empty_tool_result(m["content"]) for m in tool_msgs
+            )
+            if empty_results:
+                msgs2 = list(messages) + [
+                    {
+                        "role": "system",
+                        "content": "用户刚才的请求已经执行，但【执行结果】为空——没有查到相关内容。\n"
+                                   "回复规则：\n"
+                                   "① 必须如实告诉用户『没有找到相关内容』或『这个还查不到哦』，"
+                                   "可以温柔地请 TA 换个说法再试；\n"
+                                   "② 绝对禁止列出任何具体的项目、文件名、条目、标题或内容，"
+                                   "禁止编造填充，禁止假装已查到；\n"
+                                   "③ 用温柔治愈的口吻，简短口语，不要提『工具』『函数』『系统』『内部』等词。\n"
+                                   "【执行结果】\n" + tool_results,
+                    },
+                    {"role": "user", "content": user_input},
+                ]
+            else:
+                msgs2 = list(messages) + [
+                    {
+                        "role": "system",
+                        "content": "用户刚才的请求已经通过内部能力成功执行，真实结果见下方【执行结果】。\n"
+                                   "请直接把结果内容讲给用户，规则：\n"
+                                   "① 结果里有目录/文件名/列表/条目时，逐条如实念出来（如『30 · 项目 里有 AI虚拟人物 文件夹』）；\n"
+                                   "② 结果就是真实答案，绝对不要说自己做不到、不要说『我这边没有记录/查不到』、"
+                                   "不要回避、不要编造结果之外的内容；\n"
+                                   "③ 用温柔治愈的口吻，简短口语，不要提『工具』『函数』『系统』『内部』等词。\n"
+                                   "【执行结果】\n" + tool_results,
+                    },
+                    {"role": "user", "content": user_input},
+                ]
             try:
                 reply = self._call_ollama(msgs2, max_tokens)
             except Exception:
                 # M6.2：工具已执行，阶段 2 回复失败——返回 (None, True, True)，
                 # 调用方用安全兜底文案，绝不回退关键词路由（避免重复执行）。
                 return None, True, True
+            if empty_results and not any(kw in reply for kw in _EMPTY_RESULT_HINTS):
+                # WO-20260816-35 代码层兜底：空结果时 LLM 未如实『没找到』
+                # （编造填充/回避）→ 固定话术兜住，绝对零编造
+                reply = _EMPTY_RESULT_FALLBACK
             return reply, True, False
         except Exception:
             # 阶段 1 尚未执行工具即异常 → 回退关键词路由安全（无副作用）
             return None, False, True
+
+    # WO-20260816-35：空结果判定——工具结果为空串/空 JSON 容器/内置『（…没有…）』文案
+    @staticmethod
+    def _is_empty_tool_result(result: str) -> bool:
+        """工具结果是否为空/无内容（阶段 2 据此切换空结果模式，防编造填充）。"""
+        r = (result or "").strip()
+        if not r:
+            return True
+        if r in ("[]", "{}", "(空)", "（空）", "null", "None", "无"):
+            return True
+        # 内置工具空结果文案：『（今天没有日程安排）』『（记忆里没有相关内容）』
+        # 『（未查询到相关资料）』『（还没有保存过规划）』『（没有搜到相关结果）』
+        if r.startswith("（") and ("没有" in r or "未查询" in r or "未找到" in r):
+            return True
+        # 空 JSON 容器：{"files": []} / {"items": []} 等
+        if re.search(r'"[A-Za-z_]+"\s*:\s*\[\s*\]', r):
+            return True
+        if "0 条" in r or "0条" in r:
+            return True
+        return False
+
+    # WO-20260816-35：Obsidian 工具参数精确提示（LLM 曾把 path 传成 '30' 而非 '30 · 项目'
+    # 导致返回空结果；schema 描述补充完整目录名提示，增强进候选 schema 的深拷贝副本）
+    _OBSIDIAN_ARG_HINTS = {
+        "path": "（path 必须用完整目录名，如 '30 · 项目'——注意中文空格与序号前缀，"
+                "不要缩写为 '30'；'/' 表示知识库根目录）",
+        "query": "（query 用简洁关键词；如需限定目录，配合完整目录名，如 '30 · 项目'）",
+    }
 
     # M6.4（WO-20260816-33，QA P1②）：工具结果人类可读标签——把原始 JSON/结果按工具
     # 语义标注成中文说明（如 obsidian_vault_list → 知识库目录列表），帮助 7B 理解结果

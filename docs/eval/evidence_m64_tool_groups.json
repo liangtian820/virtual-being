@@ -5,8 +5,8 @@
     {
       "input": "帮我搜一下 DeepSeek 最新新闻",
       "expected_tool_prefix": "web_search",
-      "elapsed_s": 52.22,
-      "reply": "嗯嗯，找到了一些关于 DeepSeek 的最新消息。这里有两个链接你可以看看：\n\n1. [DeepSeek| Into the Unknown](https://www.deepseek.com/)\n2. [DeepSeek官网 –DeepSeek官方下载 | 国产开源大模型旗舰...](https://agents-deepseek.com.cn/)\n\n第一个是他们的官网，第二个是关于他们最新发布的 DeepSeek-V4-Pro 的信息。还有其他需要帮忙的吗？",
+      "elapsed_s": 29.57,
+      "reply": "好的呢，找到了一些关于 DeepSeek 的信息。不过它们大多是两天前的资料，可能没有最新的消息。\n\n1. [DeepSeek| Into the Unknown](https://www.deepseek.com/) 上有关于 DeepSeek 作为一个AI研究公司的介绍。\n2. [DeepSeek- Windows官方下载 | 微软应用商店 | Microsoft Store](https://apps.microsoft.com/detail/xpffxg0g03wn69?hl=zh-CN&gl=CN) 提到了它是一款官方推出的 AI 助手，搭载了最新的旗舰模型。\n3. [DeepSeek官网 –DeepSeek官方下载 | 国产开源大模型旗舰 ...](https://agents-deepseek.com.cn/) 上有关于 DeepSeek 官方网站的信息，提到了他们发布了最新版本的 Agent，并且提升了代理能力。\n\n这些信息可能已经涵盖了近期的动态。如果想要了解更多最新的新闻，可以试试在搜索引擎里直接搜索“DeepSeek 最新消息”，看看是否有更新的内容哦。",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -19,7 +19,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_6kmza7oc",
+              "id": "call_r6qdtrwh",
               "function": {
                 "index": 0,
                 "name": "web_search",
@@ -48,18 +48,19 @@
           "arguments": {
             "query": "DeepSeek 最新新闻"
           },
-          "result": "1. DeepSeek| Into the Unknown\n   链接：https://www.deepseek.com/\n   摘要：2 天之前 · DeepSeek is an AI research company focused on building world-leading general artificial intelligence. We develop and …\n2. DeepSeek官网 –DeepSeek官方下载 | 国产开源大模型旗舰 ...\n   链接：https://agents-deepseek.com.cn/\n   摘要：2 天之前 · DeepSeek官网是国产领先的开源大模型平台，DeepSeek-V4-Pro正式版发布，Agent能力大幅提升，支持 Responses API  …\n3. DeepSeekPlatform\n   链接：https://platform.deepseek.com/\n   摘要：Join DeepSeek API platform to access our AI models, developer resources and API documentation."
+          "result": "1. DeepSeek| Into the Unknown\n   链接：https://www.deepseek.com/\n   摘要：2 天之前 · DeepSeek is an AI research company focused on building world-leading general artificial intelligence. We develop and …\n2. DeepSeek- Windows官方下载 | 微软应用商店 | Microsoft Store\n   链接：https://apps.microsoft.com/detail/xpffxg0g03wn69?hl=zh-CN&gl=CN\n   摘要：DeepSeek 官方推出的 AI 助手，免费体验与全球领先 AI 模型的互动交流。 搭载 DeepSeek 最新旗舰模型，用更快的速度、更加全面 …\n3. DeepSeek官网 –DeepSeek官方下载 | 国产开源大模型旗舰 ...\n   链接：https://agents-deepseek.com.cn/\n   摘要：2 天之前 · DeepSeek官网是国产领先的开源大模型平台，DeepSeek-V4-Pro正式版发布，Agent能力大幅提升，支持 Responses API  …"
         }
       ],
       "triggered": true,
       "chinese_no_mojibake": true,
-      "reply_conveys_tool_result": true
+      "reply_conveys_tool_result": true,
+      "no_fabrication": true
     },
     {
       "input": "列出知识库里 30 项目的文档",
       "expected_tool_prefix": "obsidian",
-      "elapsed_s": 18.43,
-      "reply": "好的，知识库里的项目有：\n\n1. AI虚拟人物/",
+      "elapsed_s": 15.34,
+      "reply": "30个项目里有一个文档，叫做“AI虚拟人物”。我们在知识库里找到它了。需要我再帮你查些什么吗？",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -76,7 +77,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_cqwbxbfg",
+              "id": "call_s3c61hp8",
               "function": {
                 "index": 0,
                 "name": "obsidian_vault_list",
@@ -114,13 +115,14 @@
       ],
       "triggered": true,
       "chinese_no_mojibake": true,
-      "reply_conveys_tool_result": true
+      "reply_conveys_tool_result": true,
+      "no_fabrication": true
     },
     {
       "input": "明天下午3点提醒我喝水",
       "expected_tool_prefix": "schedule",
-      "elapsed_s": 20.6,
-      "reply": "好的，我已经帮你安排好了。明天下午三点会记得提醒你喝一杯水哦！保持水分很重要呢。有其他事情需要帮忙记录或者提醒的吗？",
+      "elapsed_s": 10.72,
+      "reply": "好的呢，我已经帮你安排好了。明天下午三点记得多喝点水哦，保持身体水分很重要！有其他需要帮忙的吗？",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -133,7 +135,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_02pyhxyi",
+              "id": "call_hl8kxord",
               "function": {
                 "index": 0,
                 "name": "add_schedule",
@@ -173,10 +175,27 @@
     "input": "明天下午3点提醒我喝水（强制 LLM 不选工具）",
     "schedule_recorded": true,
     "no_fake_promise": true,
-    "elapsed_s": 6.88,
-    "reply": "好呀，明天下午3点提醒你喝水，我记下啦～记得保持水分哦，对你身体好。",
+    "elapsed_s": 4.43,
+    "reply": "好呀，明天下午3点提醒你喝水，我记下啦～记得多喝点水对身体好哦。如果有其他事情需要安排，也可以跟我说哦。",
     "tool_call_rounds": [],
     "tool_executions": []
+  },
+  "empty_result_no_fabrication": {
+    "input": "列出知识库里 30 项目的文档（vault_list 返回空 {\"files\": []}）",
+    "honest_not_found": true,
+    "fabricated_samples": [],
+    "elapsed_s": 3.59,
+    "reply": "这个还查不到哦。我们可以换个话题聊聊天，或者你有其他想知道的事情吗？",
+    "tool_call_rounds": [],
+    "tool_executions": [
+      {
+        "name": "obsidian_vault_list",
+        "arguments": {
+          "path": "30"
+        },
+        "result": "{\"files\": []}"
+      }
+    ]
   },
   "memory_noise_free": true
 }
