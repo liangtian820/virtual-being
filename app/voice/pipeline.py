@@ -23,7 +23,8 @@ class VoicePipeline:
     """端到端语音对话链路（说→听→回→播）。"""
 
     def __init__(self, asr=None, tts=None, agent: Optional[PersonaAgent] = None,
-                 reply_dir: Optional[str] = None, max_reply_chars: Optional[int] = None) -> None:
+                 reply_dir: Optional[str] = None, max_reply_chars: Optional[int] = None,
+                 max_tokens: Optional[int] = None) -> None:
         """初始化链路；各组件可注入（测试/替换用）。
 
         :param asr: ASR 实例（默认 WhisperASR）
@@ -32,6 +33,8 @@ class VoicePipeline:
         :param reply_dir: 回复音频落盘目录（默认 CONFIG.voice_reply_dir）
         :param max_reply_chars: 语音回复最大字符数（默认 CONFIG.voice_max_reply_chars；
             仅影响语音链路的 TTS/返回文本，不改会话记忆与文本 API；None=不限制）
+        :param max_tokens: Ollama num_predict 上限；None 时按 max_reply_chars 推导
+            （M4.2：从源头限制生成长度，避免先生成再截断）
         """
         self._asr = asr or WhisperASR()
         self._tts = tts or EdgeTTS()
@@ -40,6 +43,18 @@ class VoicePipeline:
         if max_reply_chars is None:
             max_reply_chars = CONFIG.voice_max_reply_chars
         self._max_reply_chars = max_reply_chars
+        self._max_tokens = max_tokens if max_tokens is not None else self._derive_max_tokens(max_reply_chars)
+
+    @staticmethod
+    def _derive_max_tokens(max_reply_chars: Optional[int]) -> Optional[int]:
+        """按回复字符数推导 Ollama num_predict 上限（M4.2）。
+
+        中文约 1 字 ≈ 1-2 token，取 2.7 系数并留安全余量：60 字 → 162；
+        不限长（None）时返回 None（不限制生成）。
+        """
+        if max_reply_chars is None:
+            return None
+        return max(64, int(max_reply_chars * 2.7))
 
     @staticmethod
     def _trim_reply(reply: str, max_chars: Optional[int]) -> str:
@@ -77,7 +92,7 @@ class VoicePipeline:
         t1 = time.perf_counter()
         if not text.strip():
             raise ValueError("未能识别到有效语音，请靠近麦克风再说一次")
-        reply, sid = self._agent.chat(text, session_id)
+        reply, sid = self._agent.chat(text, session_id, max_tokens=self._max_tokens)
         t2 = time.perf_counter()
         # M4.1：语音回复长度约束（截断只影响本次 TTS/返回文本，会话记忆保持完整回复）
         reply_trimmed = self._trim_reply(reply, self._max_reply_chars)

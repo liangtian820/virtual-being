@@ -45,7 +45,7 @@ class FakeAgent:
     def __init__(self, reply: str = "嗯嗯，我在呢，陪你聊聊～") -> None:
         self.reply = reply
 
-    def chat(self, user_input: str, session_id=None):
+    def chat(self, user_input: str, session_id=None, max_tokens=None):
         return self.reply, session_id or "fake-sid-0001"
 
 
@@ -119,6 +119,25 @@ def test_asr_cpu_fallback_on_load_failure(monkeypatch) -> None:
     assert asr.transcribe("x.wav") == "降级识别成功"
     assert asr.used_cpu_fallback
     assert calls[-1][1] == "cpu"
+
+
+def test_asr_local_snapshot_detection(tmp_path) -> None:
+    """本地快照探测：HF 缓存布局与扁平目录都应命中（跳过联网校验）。"""
+    # HF 缓存布局：<model_dir>/models--Systran--faster-whisper-base/snapshots/<hash>/
+    snap = tmp_path / "models--Systran--faster-whisper-base" / "snapshots" / "abc123"
+    snap.mkdir(parents=True)
+    (snap / "model.bin").write_bytes(b"x")
+    asr = WhisperASR(model_size="base", model_dir=str(tmp_path))
+    assert asr._local_snapshot_path() == str(snap)
+    # 扁平目录：model_dir 下直接含 model.bin
+    flat = tmp_path / "flat-model"
+    flat.mkdir()
+    (flat / "model.bin").write_bytes(b"x")
+    asr2 = WhisperASR(model_size="base", model_dir=str(flat))
+    assert asr2._local_snapshot_path() == str(flat)
+    # 无模型目录/文件 → None（走标准下载路径）
+    asr3 = WhisperASR(model_size="base", model_dir=str(tmp_path / "empty"))
+    assert asr3._local_snapshot_path() is None
 
 
 # ---------- TTS ----------
@@ -438,3 +457,96 @@ def test_voice_reply_path_traversal_blocked(fake_pipeline) -> None:
     client = TestClient(app)
     resp = client.get("/voice/replies/..%2F..%2FREADME.md")
     assert resp.status_code in (400, 404)
+
+
+# ---------- M4.2：ASR 默认调优 / max_tokens / UI 状态提示 ----------
+
+
+def test_config_m42_asr_defaults() -> None:
+    """M4.2 默认 ASR 配置：base + CPU(int8)，避免与 Ollama 争抢显存。"""
+    from app.config import CONFIG
+
+    assert CONFIG.asr_model_size == "base"
+    assert CONFIG.asr_device == "cpu"
+    assert CONFIG.asr_compute_type == "int8"
+
+
+def test_pipeline_max_tokens_mapping() -> None:
+    """max_reply_chars 应映射为 Ollama num_predict 上限（60 字 → 162）。"""
+    assert VoicePipeline._derive_max_tokens(60) == 162
+    assert VoicePipeline._derive_max_tokens(0) == 64  # 下限保护
+    assert VoicePipeline._derive_max_tokens(None) is None  # 不限长不限制
+    pipe = VoicePipeline(max_reply_chars=60, max_tokens=None)
+    assert pipe._max_tokens == 162
+    pipe2 = VoicePipeline(max_reply_chars=60, max_tokens=999)
+    assert pipe2._max_tokens == 999  # 显式传入优先
+
+
+def test_pipeline_passes_max_tokens_to_agent(tmp_path) -> None:
+    """pipeline 应把推导出的 max_tokens 传给人格 Agent（源头限制生成）。"""
+    captured: dict = {}
+
+    class SpyAgent(FakeAgent):
+        def chat(self, user_input: str, session_id=None, max_tokens=None):
+            captured["max_tokens"] = max_tokens
+            return super().chat(user_input, session_id, max_tokens)
+
+    fake_asr = WhisperASR(model=FakeWhisperModel("你好"))
+    pipe = VoicePipeline(
+        asr=fake_asr,
+        tts=EdgeTTS(tts_cls=FakeCommunicate, cache_dir=str(tmp_path / "tts_cache")),
+        agent=SpyAgent(),
+        reply_dir=str(tmp_path / "replies"),
+        max_reply_chars=60,
+    )
+    audio = tmp_path / "user.mp3"
+    audio.write_bytes(b"audio")
+    pipe.handle_audio(str(audio), session_id="sid-mt")
+    assert captured["max_tokens"] == 162
+
+
+def test_agent_chat_passes_max_tokens_to_ollama(tmp_path, monkeypatch) -> None:
+    """chat(max_tokens=..) 应在 Ollama payload 的 options 里带 num_predict。"""
+    import requests
+
+    from app.agents.persona_agent import PersonaAgent
+    from app.memory.long_term_memory import LongTermMemory
+    from app.memory.session_memory import SessionMemory
+
+    captured: dict = {}
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {"message": {"content": "短回复"}}
+
+    def fake_post(url, json=None, timeout=None):
+        captured["payload"] = json
+        return FakeResponse()
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    agent = PersonaAgent(
+        memory=SessionMemory(),
+        long_memory=LongTermMemory(db_path=str(tmp_path / "mt.db")),
+    )
+    agent.chat("你好", session_id="s1", max_tokens=162)
+    assert captured["payload"]["options"]["num_predict"] == 162
+    # 文本 API 不传 max_tokens → 不限制生成（无 num_predict）
+    agent.chat("你好", session_id="s2")
+    assert "num_predict" not in captured["payload"]["options"]
+
+
+def test_web_voice_status_ui_hints() -> None:
+    """web/ 应含语音处理中状态提示（识别中/思考中/回复中），避免误判卡死。"""
+    import app.main as main_module
+
+    html = (main_module.WEB_DIR / "index.html").read_text(encoding="utf-8")
+    js = (main_module.WEB_DIR / "js" / "app.js").read_text(encoding="utf-8")
+    css = (main_module.WEB_DIR / "css" / "style.css").read_text(encoding="utf-8")
+    assert 'id="voice-status"' in html
+    assert "正在识别你的声音" in js
+    assert "TA 正在思考" in js
+    assert "正在合成回复" in js
+    assert ".voice-status" in css

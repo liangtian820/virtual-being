@@ -69,7 +69,7 @@ def test_memory_injection_in_chat(monkeypatch, tmp_path) -> None:
 
     captured = {}
 
-    def fake_call(messages):
+    def fake_call(messages, max_tokens=None):
         captured["sys"] = [m for m in messages if m["role"] == "system"]
         return "嗯嗯，我记得你喜欢猫呢。"
     monkeypatch.setattr(agent, "_call_ollama", fake_call)
@@ -147,7 +147,7 @@ def test_memory_persisted_when_ollama_fails(monkeypatch, tmp_path) -> None:
     mem = LongTermMemory(db_path=db)
     agent = PersonaAgent(long_memory=mem)
 
-    def boom(messages):
+    def boom(messages, max_tokens=None):
         raise RuntimeError("Ollama 调用失败")
 
     monkeypatch.setattr(agent, "_call_ollama", boom)

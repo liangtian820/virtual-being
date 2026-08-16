@@ -151,7 +151,7 @@ def test_persona_routes_calc_intent(monkeypatch: pytest.MonkeyPatch) -> None:
     agent = PersonaAgent()
     captured: dict = {}
 
-    def fake_call(messages: list) -> str:
+    def fake_call(messages: list, max_tokens=None) -> str:
         captured["messages"] = messages
         return "好的呀，300 的 20% 是 60 哦～"
 
@@ -167,7 +167,7 @@ def test_persona_routes_calc_error(monkeypatch: pytest.MonkeyPatch) -> None:
     agent = PersonaAgent()
     captured: dict = {}
 
-    def fake_call(messages: list) -> str:
+    def fake_call(messages: list, max_tokens=None) -> str:
         captured["messages"] = messages
         return "唔…这个我没算明白，能再说清楚一点嘛？"
 
@@ -182,7 +182,7 @@ def test_persona_not_route_casual(monkeypatch: pytest.MonkeyPatch) -> None:
     agent = PersonaAgent()
     captured: dict = {}
 
-    def fake_call(messages: list) -> str:
+    def fake_call(messages: list, max_tokens=None) -> str:
         captured["messages"] = messages
         return "今天也要开开心心的呀～"
 

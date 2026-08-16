@@ -84,8 +84,13 @@ class PersonaAgent:
         self._knowledge = KnowledgeAgent()
         self._calculator = CalculatorAgent()
 
-    def chat(self, user_input: str, session_id: Optional[str] = None) -> tuple:
-        """一次对话：返回 (回复文本, session_id)。"""
+    def chat(self, user_input: str, session_id: Optional[str] = None,
+             max_tokens: Optional[int] = None) -> tuple:
+        """一次对话：返回 (回复文本, session_id)。
+
+        :param max_tokens: Ollama num_predict 上限（M4.2：语音链路按回复长度约束
+            从源头限制生成，文本 API 不传则不限；None=沿用模型默认）
+        """
         sid = session_id or uuid.uuid4().hex
         self._memory.append(sid, "user", user_input)
         messages = [{"role": "system", "content": self._system_prompt}]
@@ -132,26 +137,31 @@ class PersonaAgent:
         # 本次用户事实/话题也不丢失。
         extracted = extract_memories(user_input)
         try:
-            reply = self._call_ollama(messages)
+            reply = self._call_ollama(messages, max_tokens)
         finally:
             for kind, content in extracted:
                 self._memory_long.add(kind, content, source_session=sid)
         self._memory.append(sid, "assistant", reply)
         return reply, sid
 
-    def _call_ollama(self, messages: List[dict]) -> str:
+    def _call_ollama(self, messages: List[dict], max_tokens: Optional[int] = None) -> str:
         """调用 Ollama /api/chat（非流式）。
 
         M4.1：带 keep_alive 长驻参数（默认 60m），让模型常驻显存/内存，
         消除连续对话间的模型冷启动（实测 17s → 数次秒内）。
+        M4.2：可选 num_predict（max_tokens）从源头限制生成长度，
+        避免"先生成几百字再截断"的浪费。
         """
         url = f"{self._base_url.rstrip('/')}/api/chat"
+        options: dict = {"temperature": self._temperature}
+        if max_tokens is not None and max_tokens > 0:
+            options["num_predict"] = max_tokens
         payload = {
             "model": self._model,
             "messages": messages,
             "stream": False,
             "keep_alive": CONFIG.ollama_keep_alive,
-            "options": {"temperature": self._temperature},
+            "options": options,
         }
         try:
             resp = requests.post(url, json=payload, timeout=120)

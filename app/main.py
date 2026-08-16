@@ -1,11 +1,15 @@
-"""FastAPI 服务入口：虚拟人物的对话 API（M1-M4）。
+"""FastAPI 服务入口：虚拟人物的对话 API（M1-M4.2）。
 
 - POST /chat          文本对话（M1）
 - POST /chat/voice    语音对话：上传音频 → 返回回复音频（M4）
 - GET  /voice/replies/{filename}  下载/播放回复音频（M4）
+- 启动生命周期（M4.2）：预加载 ASR 模型 + 后台预热 Ollama，消除首次语音请求的加载等待
 """
 import os
 import tempfile
+import threading
+import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -15,9 +19,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.agents.persona_agent import PersonaAgent
+from app.config import CONFIG
+from app.voice.asr import WhisperASR
 from app.voice.pipeline import VoicePipeline
-
-app = FastAPI(title="Virtual Being", version="0.5.0", description="AI 虚拟人物 · M5 形象")
 
 # M5 形象：Web 聊天界面静态资源目录（index.html / css / js）
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -26,13 +30,66 @@ _agent = PersonaAgent()
 
 # 语音链路单例：测试可用假对象覆盖（app.main._voice_pipeline = FakePipeline()）
 _voice_pipeline: Optional[VoicePipeline] = None
+# M4.2：启动时预加载的 ASR 实例（复用给 pipeline，避免二次加载）
+_asr_singleton: Optional[WhisperASR] = None
+
+
+def _prewarm_ollama() -> None:
+    """后台预热 Ollama：keep_alive 一次最小生成，让模型常驻，避免首个语音请求冷启动 LLM。
+
+    失败静默：预热失败不影响服务，首个请求会按需加载。
+    """
+    try:
+        import requests
+
+        requests.post(
+            f"{CONFIG.ollama_base_url.rstrip('/')}/api/chat",
+            json={
+                "model": CONFIG.ollama_model,
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": False,
+                "keep_alive": CONFIG.ollama_keep_alive,
+                "options": {"temperature": 0.0, "num_predict": 1},
+            },
+            timeout=120,
+        )
+    except Exception:
+        pass
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """启动生命周期（M4.2）：预加载 ASR 模型 + 后台预热 Ollama。
+
+    - ASR 同步预加载（本地模型数秒）：保证首个 /chat/voice 无模型加载等待；
+      失败不阻塞启动（首次请求按需加载兜底）。
+    - Ollama 后台线程预热（非阻塞）。
+    """
+    global _asr_singleton
+    t0 = time.perf_counter()
+    if CONFIG.asr_preload:
+        try:
+            asr = WhisperASR()
+            asr._ensure_model()
+            _asr_singleton = asr
+            dev = "cpu(降级)" if asr.used_cpu_fallback else asr._device
+            print(f"[startup] ASR 模型预加载完成（{time.perf_counter() - t0:.1f}s, "
+                  f"size={asr._model_size}, device={dev}）")
+        except Exception as exc:
+            print(f"[startup] ASR 预加载失败（首个请求将按需加载）: {exc}")
+    threading.Thread(target=_prewarm_ollama, daemon=True, name="ollama-prewarm").start()
+    yield
+
+
+app = FastAPI(title="Virtual Being", version="0.6.0",
+              description="AI 虚拟人物 · M4.2 语音优化", lifespan=lifespan)
 
 
 def get_voice_pipeline() -> VoicePipeline:
-    """获取语音链路单例（惰性创建）。"""
+    """获取语音链路单例（惰性创建；复用启动时预加载的 ASR 实例）。"""
     global _voice_pipeline
     if _voice_pipeline is None:
-        _voice_pipeline = VoicePipeline()
+        _voice_pipeline = VoicePipeline(asr=_asr_singleton)
     return _voice_pipeline
 
 

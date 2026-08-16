@@ -37,14 +37,19 @@ class Config:
     # M4.1 延迟优化：Ollama keep_alive 长驻（如 "60m"），消除每次对话的模型冷启动
     ollama_keep_alive: str = field(default_factory=lambda: os.getenv("OLLAMA_KEEP_ALIVE", "60m"))
     # M4 语音配置（ASR）：Whisper 本地识别，中文支持
-    asr_model_size: str = field(default_factory=lambda: os.getenv("ASR_MODEL_SIZE", "small"))
-    asr_device: str = field(default_factory=lambda: os.getenv("ASR_DEVICE", "auto"))
-    asr_compute_type: str = field(default_factory=lambda: os.getenv("ASR_COMPUTE_TYPE", "auto"))
+    # M4.2 默认调优：base + CPU(int8) —— 基准实测 base/CPU 937ms 稳定，
+    # 且不占用 Ollama 需要的 6GB 显存（避免争抢导致 ASR/LLM 双双变慢）
+    asr_model_size: str = field(default_factory=lambda: os.getenv("ASR_MODEL_SIZE", "base"))
+    asr_device: str = field(default_factory=lambda: os.getenv("ASR_DEVICE", "cpu"))
+    asr_compute_type: str = field(default_factory=lambda: os.getenv("ASR_COMPUTE_TYPE", "int8"))
     # ASR_LANGUAGE=auto 表示 Whisper 自动检测语言；默认中文优先
     asr_language: Optional[str] = field(
         default_factory=lambda: None if os.getenv("ASR_LANGUAGE", "zh") == "auto" else os.getenv("ASR_LANGUAGE", "zh")
     )
-    asr_model_dir: Optional[str] = field(default_factory=lambda: os.getenv("ASR_MODEL_DIR") or None)
+    # 模型本地缓存目录（HF 缓存布局：models--Systran--faster-whisper-{size}），默认项目 data/models
+    asr_model_dir: Optional[str] = field(default_factory=lambda: os.getenv("ASR_MODEL_DIR") or "data/models")
+    # M4.2：启动时预加载 ASR 模型（ASR_PRELOAD=0 可关闭）
+    asr_preload: bool = field(default_factory=lambda: os.getenv("ASR_PRELOAD", "1") != "0")
     # M4 语音配置（TTS）：edge-tts 现成音色，默认中文女声「晓晓」
     tts_voice: str = field(default_factory=lambda: os.getenv("TTS_VOICE", "zh-CN-XiaoxiaoNeural"))
     tts_rate: str = field(default_factory=lambda: os.getenv("TTS_RATE", "+0%"))

@@ -127,13 +127,38 @@ M4.1 三项优化：
 
 | 配置 | 延迟 | 建议 |
 | --- | --- | --- |
-| small/GPU（int8_float16） | 324ms | 当前默认；需 cuBLAS + PATH |
-| base/GPU（int8_float16） | 228ms | 显存紧张/延迟敏感首选 |
-| base/CPU（int8） | 937ms | 无 GPU 且可接受约 1s 时推荐 |
-| small/CPU（int8） | 2523ms | 默认回退路径 |
+| base/CPU（int8） | 937ms | **M4.2 当前默认**：稳定且不抢 Ollama 的 6GB 显存 |
+| base/GPU（int8_float16） | 228ms | 显存充裕/延迟敏感首选 |
+| small/GPU（int8_float16） | 324ms | 需 cuBLAS + PATH（会与 LLM 争显存） |
+| small/CPU（int8） | 2523ms | 需要更大模型精度时可选 |
 
 **遗留风险**：链路上 ASR 实测 2.6~9.3s 波动（首次 GPU 推理初始化 + 与 Ollama 争抢 6GB 显存），
 单独基准仅约 0.3s；建议语音服务常驻时 ASR 固定 CPU 或换 base/GPU、并让 Ollama 与 ASR 显存错峰。
+
+## M4.2 加载/延迟冲刺（实测对比，证据 `data/m4_voice/evidence_m42.json`）
+
+| 指标 | 优化前（用户反馈/M4.1） | 优化后（M4.2） |
+| --- | --- | --- |
+| 首次 /chat/voice 模型加载 | ~90s（用户感知"加载太久"） | **启动预加载 0.7s**，首次请求 ASR 仅 1.0s |
+| 服务启动到可服务 | 预加载卡 43s（HF 联网校验超时） | **0.7s**（本地快照直读，跳过 HF 校验） |
+| 热态端到端 | 8.3~9.7s | 6.2~7.0s |
+| 长回复 LLM 生成 | 14.3s / 425 字 | 9.3s / 52 字（-35% / -88%） |
+
+M4.2 四项优化：
+
+1. **ASR 启动预加载**（`ASR_PRELOAD=1` 默认开）：FastAPI lifespan 启动时加载 ASR 模型 +
+   后台预热 Ollama（keep_alive），首次语音请求零模型加载等待（启动日志 `[startup] ASR 模型预加载完成`）。
+2. **本地快照直读**：模型在 `data/models`（HF 缓存布局或扁平目录均可）时直接按路径加载，
+   跳过 huggingface_hub 联网校验——修复直连被墙时的启动卡顿（实测预加载 43.2s → 0.7s）。
+3. **ASR 默认调优**：默认 `ASR_MODEL_SIZE=base` + `ASR_DEVICE=cpu` + `ASR_COMPUTE_TYPE=int8`
+   （链上实测 ASR 稳定 ~0.9s，且不占用 Ollama 的显存）。
+4. **LLM 生成长度源头限制**：voice 路径按 `max_reply_chars` 映射 Ollama `num_predict`
+   （60 字 → 162 tokens），不再"先生成几百字再截断"（长回复 LLM 14.3s → 9.3s）。
+
+UI（web/）语音处理中分阶段提示：识别中 → TA 正在思考 → 正在合成回复，避免用户误判卡死。
+
+**热态端到端仍未达标（<5s）**：实测 6.2~7.0s，瓶颈为 LLM 生成（3.6~4.5s）与 TTS 在线合成（1.6~1.8s）；
+后续候选：LLM 换 qwen2.5:3b/llama3.2:3b、TTS 本地化/流式首包、回复 ≤40 字。
 
 ## 测试
 

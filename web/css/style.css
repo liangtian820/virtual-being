@@ -352,3 +352,15 @@ body {
   .blob, .voice-btn.recording { animation: none !important; }
   .expr { transition: none; }
 }
+
+/* ---------- M4.2：语音处理中状态提示（识别中/思考中/回复中） ---------- */
+.voice-status {
+  min-height: 1.3em;
+  margin-top: 6px;
+  font-size: 0.82rem;
+  color: #c08aa0;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.voice-status.visible { opacity: 1; }

@@ -16,6 +16,7 @@
   const SEND_BTN   = document.getElementById("send-btn");
   const VOICE_BTN  = document.getElementById("voice-btn");
   const VOICE_HINT = document.getElementById("voice-hint");
+  const VOICE_STATUS = document.getElementById("voice-status");
 
   const API_CHAT  = "/chat";
   const API_VOICE = "/chat/voice";
@@ -45,6 +46,18 @@
     PORTRAIT.dataset.state = state;
     STATE_TEXT.textContent = STATE_LABELS[state];
     STATE_BADGE.classList.toggle("hidden", state === "default");
+  }
+
+  /* ---------- 语音处理中阶段提示（M4.2：识别中/思考中/回复中） ---------- */
+  function setVoiceStatus(text) {
+    if (!VOICE_STATUS) return;
+    if (text) {
+      VOICE_STATUS.textContent = text;
+      VOICE_STATUS.classList.add("visible");
+    } else {
+      VOICE_STATUS.textContent = "";
+      VOICE_STATUS.classList.remove("visible");
+    }
   }
 
   /* ---------- 会话 id（浏览器端生成，服务端会延续/返回） ---------- */
@@ -204,6 +217,10 @@
     fd.append("file", blob, "voice.webm");
     fd.append("session_id", ensureSession());
     setState("thinking");
+    // M4.2：分阶段"处理中"提示（客户端估算：识别 → 思考 → 合成），避免误判卡死
+    setVoiceStatus("正在识别你的声音…");
+    const statusT1 = setTimeout(() => setVoiceStatus("TA 正在思考…"), 1500);
+    const statusT2 = setTimeout(() => setVoiceStatus("正在合成回复…"), 4500);
     try {
       const resp = await fetch(API_VOICE, { method: "POST", body: fd });
       if (!resp.ok) {
@@ -221,6 +238,9 @@
       setState("default");
       addMessage("error", "语音没听清… " + err.message + "，请再试一次～");
     } finally {
+      clearTimeout(statusT1);
+      clearTimeout(statusT2);
+      setVoiceStatus("");
       busy = false;
     }
   }
