@@ -102,6 +102,21 @@ def test_knowledge_intent_candidates():
     assert len(names) <= 8
 
 
+@pytest.mark.parametrize("text", [
+    "DeepSeek Harness 是干嘛的？",
+    "这个工具是做什么的？",
+    "LangChain 有什么用？",
+    "Ollama 怎么用？",
+])
+def test_colloquial_knowledge_intent_enters_knowledge_group(text):
+    """M6.6（WO-20260816-36）：口语问法『是干嘛的/是做什么的/有什么用/怎么用』
+    纳入知识/搜索候选组（此前不在触发词内，工具未触发，7B 含糊编造）。"""
+    names = select_candidate_tool_names(text)
+    assert "web_search" in names, f"{text!r} 候选集应含 web_search: {names}"
+    assert "query_knowledge" in names, f"{text!r} 候选集应含 query_knowledge: {names}"
+    assert len(names) <= 8
+
+
 def test_schedule_intent_candidates():
     names = select_candidate_tool_names("明天下午3点提醒我喝水")
     assert set(names) == {"get_schedule", "add_schedule", "mark_schedule_done", "delete_schedule"}

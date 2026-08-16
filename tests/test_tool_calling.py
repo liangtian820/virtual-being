@@ -621,3 +621,88 @@ def test_candidate_schemas_obsidian_path_hint(monkeypatch):
                                     ["function"]["parameters"]["properties"]["path"]["description"])
     finally:
         global_registry.unregister("obsidian_vault_list")
+
+
+# ---------- M6.6（WO-20260816-36）：知识三级兜底 + 语句自然化 ----------
+
+
+class _EmptyKnowledge:
+    """假知识 Agent：内置库+Wikipedia 均无结果（origin=none）。"""
+
+    def query(self, q):
+        return {"answer": "没有找到相关资料哦", "source": "", "origin": "none"}
+
+
+def test_query_knowledge_web_3tier_fallback(monkeypatch):
+    """M6.6：query_knowledge 内置库+Wikipedia 无结果时，自动降级 Bing 联网搜索，
+    返回真实搜索结果（用户『deepseek harness是什么』曾只得到『查不到』）。"""
+    agent = _make_agent(knowledge=_EmptyKnowledge())
+    monkeypatch.setattr(
+        "app.tools.web_search.search_text",
+        lambda q, timeout=10: "1. DeepSeek Harness 文档\n   链接：https://example.com/dsh\n   摘要：DeepSeek Harness 是智能体开发框架",
+    )
+    out = agent._execute_tool("query_knowledge", {"question": "deepseek harness是什么"})
+    assert "联网搜索结果" in out and "DeepSeek Harness" in out
+    assert "example.com" in out  # 真实来源链接
+
+
+def test_query_knowledge_web_fallback_empty_stays_honest(monkeypatch):
+    """M6.6：三级兜底全空时仍如实『未查询到』，不编造。"""
+    agent = _make_agent(knowledge=_EmptyKnowledge())
+    monkeypatch.setattr("app.tools.web_search.search_text", lambda q, timeout=10: "")
+    out = agent._execute_tool("query_knowledge", {"question": "完全不存在的东西xyz"})
+    assert "未查询到相关资料" in out
+
+
+def test_knowledge_route_3tier_fallback_injects_web(monkeypatch, tmp_path):
+    """M6.6：无工具路径下知识无结果 → 注入 Bing 联网搜索结果（_route_by_keywords 三级兜底）。"""
+    from app.memory.long_term_memory import LongTermMemory
+
+    mem = LongTermMemory(db_path=str(tmp_path / "kb3.db"))
+    agent = PersonaAgent(long_memory=mem)
+    agent._knowledge = _EmptyKnowledge()
+    captured = {}
+
+    def record(messages, max_tokens=None):
+        captured["sys"] = [m["content"] for m in messages if m["role"] == "system"]
+        return "好的～"
+
+    monkeypatch.setattr(agent, "_call_ollama", record)
+    monkeypatch.setattr("app.tools.web_search.search_text",
+                        lambda q, timeout=10: "1. DeepSeek Harness 文档\n   链接：https://example.com/dsh\n   摘要：摘要")
+    try:
+        agent.chat("deepseek harness是什么", session_id="kb3-tier")
+        assert any("联网搜索结果" in c and "example.com" in c for c in captured["sys"])
+    finally:
+        mem.close()
+
+
+def test_stage2_prompt_requires_natural_wording(monkeypatch):
+    """M6.6：阶段 2 非空回显提示含自然化要求（不念清单、不套模板开头）。"""
+    agent = _make_agent()
+    script = iter([
+        {"content": "", "tool_calls": [
+            {"function": {"name": "query_knowledge", "arguments": {"question": "LangChain 是什么"}}}]},
+        {"content": "", "tool_calls": None},
+    ])
+    captured = {}
+
+    def record_stage2(messages, max_tokens=None):
+        captured["msgs"] = messages
+        return "好的～"
+
+    monkeypatch.setattr(agent, "_call_ollama_with_tools", lambda *a, **k: next(script))
+    monkeypatch.setattr(agent, "_call_ollama", record_stage2)
+    agent.chat("LangChain 是什么", session_id="natural-wording")
+    result_msg = [m["content"] for m in captured["msgs"] if m["role"] == "system"][-1]
+    assert "不要念清单" in result_msg and "模板" in result_msg  # 自然化要求
+    assert "句式有变化" in result_msg
+
+
+def test_character_card_natural_wording():
+    """M6.6：人设卡说话风格不再鼓励每句『我在呢』，要求安抚词轮换与句式有变化。"""
+    from app.persona.character_card import CHARACTER_CARD
+
+    speech = " ".join(CHARACTER_CARD["speech_style"])
+    assert "轮换使用" in speech and "不套模板" in speech
+    assert "句式有变化" in speech

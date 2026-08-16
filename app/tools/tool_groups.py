@@ -116,7 +116,7 @@ TOOL_RULE_HINTS: dict = {
     # 记忆
     "query_memory": "用户问『你记得我…/我说过…/我的记忆/我之前…』 → 调用 query_memory；",
     # 知识 / 资讯
-    "query_knowledge": "用户问知识概念（什么是/介绍一下/查一下/帮我查）→ 调用 query_knowledge；",
+    "query_knowledge": "用户问知识概念或工具用途（什么是/是干嘛的/是做什么的/有什么用/怎么用/介绍一下/查一下/帮我查）→ 调用 query_knowledge；",
     "web_search": "用户问最新资讯/新闻/教程/实时信息，或内置知识库查不到的内容 → 调用 web_search（参数 query 传简洁关键词，如『DeepSeek 最新新闻』）。",
     # 计算
     "calculate": "用户要求算数/百分比（算一下/多少的/百分之）→ 调用 calculate；",

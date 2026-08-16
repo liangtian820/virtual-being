@@ -30,7 +30,13 @@ from app.tools.tool_groups import TOOL_GROUPS, TOOL_RULE_HINTS, select_candidate
 from app.tools.tool_specs import get_tool_specs
 
 # 知识查询意图关键词（起步版简单规则；后续可换模型判断）
-_KNOWLEDGE_PATTERN = re.compile(r"(查一下|什么是|是什么|介绍一下|查找|搜索|查询|帮我查|了解)", re.IGNORECASE)
+# M6.6（WO-20260816-36）：补全口语问法『是干嘛的/是做什么的/是什么东西/有什么用/怎么用』——
+# 用户实测『DeepSeek Harness 是干嘛的？』因不在触发词内，工具未触发，7B 含糊编造。
+_KNOWLEDGE_PATTERN = re.compile(
+    r"(查一下|什么是|是什么|介绍一下|查找|搜索|查询|帮我查|了解|"
+    r"是干嘛的|是做什么的|干什么的|干啥的|是什么东西|有什么用|怎么用|咋用)",
+    re.IGNORECASE,
+)
 
 # 计算意图强关键词（起步版简单规则；后续可换模型判断）
 _CALC_STRONG_PATTERN = re.compile(
@@ -451,16 +457,32 @@ class PersonaAgent:
             result = self._knowledge.query(user_input)
             context = f"[知识查询结果，来源：{result['source'] or '无'}]\n{result['answer']}"
             if result.get("origin") == "none" or not result.get("source"):
-                # M6 v3（WO-20260816-15，T10/P1-1）：无结果时禁止来源句式（R8 不编造来源），
-                # 强制"没查到"模板；可给常识建议但不得假装查过/标注来源
-                messages.append({
-                    "role": "system",
-                    "content": "用户问了知识类问题，但本次没有查询到相关资料。请如实告诉用户"
-                               "『我这边暂时没查到呢，换个问法我再试试』，保持温柔治愈的语气；"
-                               "如果用户还带有情绪，先安抚再说话。"
-                               "你可以基于常识温柔地给一些通用建议，但不要假装查过资料，"
-                               "也不要标注任何来源（如「（来源：内置知识库）」）：\n" + context,
-                })
+                # M6.6（WO-20260816-36）：三级兜底——内置库+Wikipedia 无结果时降级 Bing
+                # 联网搜索注入真实结果（用户『deepseek harness是什么』曾只得到『查不到』）
+                try:
+                    from app.tools.web_search import search_text
+                    web = search_text(user_input)
+                except Exception:
+                    web = ""
+                # search_text 无结果时返回『（联网搜索没有查到结果）』，需排除（视为空）
+                if web and web.strip() and not self._is_empty_tool_result(web):
+                    messages.append({
+                        "role": "system",
+                        "content": "用户问了知识类问题，内置知识库与百科没有查到，以下为联网搜索到的"
+                                   "真实结果。请如实转述，要点式简短并附上结果来源链接；"
+                                   "只依据搜索结果讲，不编造：\n[联网搜索结果]\n" + web,
+                    })
+                else:
+                    # M6 v3（WO-20260816-15，T10/P1-1）：无结果时禁止来源句式（R8 不编造来源），
+                    # 强制"没查到"模板；可给常识建议但不得假装查过/标注来源
+                    messages.append({
+                        "role": "system",
+                        "content": "用户问了知识类问题，但本次没有查询到相关资料。请如实告诉用户"
+                                   "『我这边暂时没查到呢，换个问法我再试试』，保持温柔治愈的语气；"
+                                   "如果用户还带有情绪，先安抚再说话。"
+                                   "你可以基于常识温柔地给一些通用建议，但不要假装查过资料，"
+                                   "也不要标注任何来源（如「（来源：内置知识库）」）：\n" + context,
+                    })
             else:
                 messages.append({
                     "role": "system",
@@ -718,6 +740,17 @@ class PersonaAgent:
                 question = (arguments.get("question") or "").strip()
                 result = self._knowledge.query(question)
                 if result.get("origin") == "none" or not result.get("source"):
+                    # M6.6（WO-20260816-36）：知识三级兜底——内置库+Wikipedia 均无结果时，
+                    # 自动降级 Bing 联网搜索，把真实搜索结果交阶段 2 转述
+                    # （用户实测『deepseek harness是什么』曾只得到『查不到』，拿不到答案）。
+                    try:
+                        from app.tools.web_search import search_text
+                        web = search_text(question)
+                    except Exception:
+                        web = ""
+                    # search_text 无结果时返回『（联网搜索没有查到结果）』，需排除（视为空）
+                    if web and web.strip() and not self._is_empty_tool_result(web):
+                        return f"（内置知识库未查到，以下为联网搜索结果）\n{web}"
                     return "（未查询到相关资料）"
                 return f"{result['answer']}\n（来源：{result.get('source')}）"
             if name == "calculate":
@@ -942,7 +975,9 @@ class PersonaAgent:
                                    "① 结果里有目录/文件名/列表/条目时，逐条如实念出来（如『30 · 项目 里有 AI虚拟人物 文件夹』）；\n"
                                    "② 结果就是真实答案，绝对不要说自己做不到、不要说『我这边没有记录/查不到』、"
                                    "不要回避、不要编造结果之外的内容；\n"
-                                   "③ 用温柔治愈的口吻，简短口语，不要提『工具』『函数』『系统』『内部』等词。\n"
+                                   "③ 用温柔治愈的口吻，简短口语，不要提『工具』『函数』『系统』『内部』等词；\n"
+                                   "④ 用自然的话转述（如『我帮你查到了，XX 是……』），不要念清单、"
+                                   "不要用『今天过得怎么样？我在呢』这类模板开头，句式有变化。\n"
                                    "【执行结果】\n" + tool_results,
                     },
                     {"role": "user", "content": user_input},

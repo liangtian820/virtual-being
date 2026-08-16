@@ -288,6 +288,9 @@ def test_knowledge_no_result_no_source_template(monkeypatch, tmp_path) -> None:
     mem = LongTermMemory(db_path=str(tmp_path / "nor.db"))
     agent, captured = _capture_agent(tmp_path, mem, monkeypatch)
     agent._knowledge = _FakeNoResultKnowledge()
+    # M6.6（WO-20260816-36）：知识无结果会触发三级兜底 Bing 搜索——离线测试 mock 无结果
+    monkeypatch.setattr("app.tools.web_search.search_text",
+                        lambda q, timeout=10: "（联网搜索没有查到结果）")
     try:
         agent.chat("帮我查一下最新的量子计算机进展", session_id="nor-session")
     finally:

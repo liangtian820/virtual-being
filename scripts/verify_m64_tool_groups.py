@@ -98,6 +98,13 @@ def main() -> int:
         {"text": "帮我搜一下 DeepSeek 最新新闻", "expect": "web_search", "kind": "tool"},
         {"text": "列出知识库里 30 项目的文档", "expect": "obsidian", "kind": "tool"},
         {"text": "明天下午3点提醒我喝水", "expect": "schedule", "kind": "schedule"},
+        # M6.6（WO-20260816-36）：知识三级兜底（内置库→Wikipedia→Bing）
+        {"text": "DeepSeek Harness 是什么", "expect": "knowledge", "kind": "knowledge3", "require_answer": False},
+        {"text": "LangChain 是什么", "expect": "knowledge", "kind": "knowledge3", "require_answer": True},
+        # M6.6：口语问法触发（『是干嘛的』此前不在触发词内，工具未触发致 7B 编造）
+        {"text": "DeepSeek Harness 是干嘛的？", "expect": "knowledge", "kind": "colloquial"},
+        # M6.6：寒暄自然化抽查（『我在呢』不每句重复）
+        {"text": "你好呀", "expect": "greeting", "kind": "greeting"},
     ]
 
     evidence = {"mcp_tools_registered": n, "registry_total": len(registry.names()), "cases": []}
@@ -139,7 +146,7 @@ def main() -> int:
                   f"no_fake_promise={not fake_promise}  ({elapsed}s)")
             print(f"  候选 schema 数/轮: {[r['tools_given_count'] for r in rounds_log]}")
             print(f"  reply: {reply[:300]}")
-        else:
+        elif case_cfg["kind"] == "tool":
             triggered = any(cn and cn.startswith(expect) for cn in call_names)
             # 验收追加：obsidian 工具返回内容中文不乱码（含 CJK 即解码正确；
             # 若仍按 Latin-1 解码，中文 UTF-8 字节会变成 è™æ‹Ÿ 等非 CJK 字符）
@@ -172,6 +179,61 @@ def main() -> int:
             print(f"  reply: {reply[:300]}")
             for e in exec_log:
                 print(f"  [exec] {e['name']}({e['arguments']}) -> {e['result'][:160]}")
+        elif case_cfg["kind"] in ("knowledge3", "colloquial"):
+            # M6.6：知识类（内置/搜索工具触发）；7B 工具决策有随机性——未触发时
+            # 新会话重试（真实用户也会再问一次；QA 复验同为此抽查方式）
+            knowledge_tools = {"query_knowledge", "web_search"}
+            retries = 0
+            while not (set(call_names) & knowledge_tools) and retries < 2:
+                rounds_log.clear()
+                exec_log.clear()
+                t0 = time.time()
+                try:
+                    reply, _ = agent.chat(text, session_id=f"m64-verify-{expect}-r{retries}")
+                except Exception as exc:
+                    reply = f"（chat 异常：{exc}）"
+                elapsed = round(time.time() - t0, 2)
+                call_names = [
+                    c.get("function", {}).get("name", "")
+                    for r in rounds_log for c in (r.get("tool_calls") or [])
+                ]
+                retries += 1
+            triggered = bool(set(call_names) & knowledge_tools)
+            no_answer = any(k in (reply or "") for k in
+                            ("没有找到相关内容", "这个还查不到", "我这边暂时没查到"))
+            if case_cfg["kind"] == "knowledge3" and case_cfg.get("require_answer", True):
+                ok = triggered and not no_answer
+            else:
+                ok = triggered
+            all_ok = all_ok and ok
+            # 重试后刷新 case 快照（初始快照为首次尝试，可能未触发工具）
+            case.update({
+                "reply": reply,
+                "elapsed_s": elapsed,
+                "tool_call_rounds": list(rounds_log),
+                "tool_executions": list(exec_log),
+            })
+            case.update({
+                "triggered": triggered,
+                "no_answer_phrase": no_answer,
+                "retries": retries,
+            })
+            print(f"\n=== {text}")
+            print(f"  triggered={triggered}  no_answer_phrase={no_answer}  tool_calls={call_names}  ({elapsed}s)")
+            print(f"  候选 schema 数/轮: {[r['tools_given_count'] for r in rounds_log]}")
+            print(f"  reply: {reply[:300]}")
+            for e in exec_log:
+                print(f"  [exec] {e['name']}({e['arguments']}) -> {e['result'][:160]}")
+        else:  # greeting：语句自然化抽查（『我在呢』/『今天过得怎么样？』不重复出现）
+            greets = (reply or "").count("我在呢")
+            greets_q = (reply or "").count("今天过得怎么样？")
+            natural = greets <= 1 and greets_q <= 1
+            ok = natural
+            all_ok = all_ok and ok
+            case.update({"natural_wording": natural, "greet_echo_count": greets})
+            print(f"\n=== {text}")
+            print(f"  natural_wording={natural}  greet_echo_count={greets}  ({elapsed}s)")
+            print(f"  reply: {reply[:300]}")
         evidence["cases"].append(case)
 
     # WO-20260816-34 无工具兜底专项：强制阶段1 不调用工具（模拟 LLM 未选工具），
