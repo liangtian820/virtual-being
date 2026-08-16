@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -121,6 +121,31 @@ class VoiceChatResponse(BaseModel):
 def health() -> dict:
     """健康检查。"""
     return {"status": "ok"}
+
+
+# ---------- M5.1（WO-20260816-22）：记忆 API（供对话与后续 Web 使用） ----------
+
+
+@app.get("/memory")
+def list_memories(limit: int = Query(50, ge=1, le=200)) -> dict:
+    """列示长期记忆（摘要级：content 截断，不含内部元数据）。"""
+    items = [
+        {"id": m["id"], "kind": m["kind"], "content": m["content"][:60],
+         "created_at": m["created_at"]}
+        for m in _agent._memory_long.recent(limit=limit)
+    ]
+    return {"memories": items, "count": len(items)}
+
+
+@app.delete("/memory")
+def clear_memories(confirm: str = Query("")) -> dict:
+    """清空长期记忆（需 confirm=1 确认；保留表结构，清空后留痕日志）。"""
+    if confirm != "1":
+        raise HTTPException(status_code=400, detail="清空记忆需要确认：DELETE /memory?confirm=1")
+    store = _agent._memory_long
+    deleted = store.clear()
+    print(f"[memory] 已清空 {deleted} 条记忆（{time.strftime('%Y-%m-%d %H:%M:%S')}）")
+    return {"ok": True, "deleted": deleted}
 
 
 @app.post("/chat", response_model=ChatResponse)

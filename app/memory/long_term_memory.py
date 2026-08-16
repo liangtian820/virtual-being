@@ -174,6 +174,18 @@ class LongTermMemory:
         with closing(self._connect()) as conn:
             return conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
 
+    def clear(self) -> int:
+        """清空全部记忆（memories 与 memory_embeddings 表），保留表结构，返回删除条数。
+
+        M5.1（WO-20260816-22）：供 DELETE /memory 调用；不触碰任何检索逻辑。
+        """
+        with closing(self._connect()) as conn:
+            with conn:
+                n = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+                conn.execute("DELETE FROM memories")
+                conn.execute("DELETE FROM memory_embeddings")
+                return int(n)
+
     # ---------- M3.5：向量存储（独立新表，不改 memories 结构） ----------
 
     def _store_embedding(self, memory_id: str, vector: List[float]) -> None:

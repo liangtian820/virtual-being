@@ -166,9 +166,11 @@ def test_empty_memory_injects_anti_fabrication_hint(monkeypatch, tmp_path) -> No
     finally:
         mem.close()
     sys_msgs = captured["sys"]
-    assert not any("长期记忆" in m["content"] for m in sys_msgs)
-    # 首条仍是系统提示词
-    assert captured["sys"][0]["content"] == build_system_prompt()
+    # M5.1：『你还记得我…』命中记忆问答路由 → 注入回忆引导，但空记忆无真实内容块
+    assert not any("以下是用户过往对话中的长期记忆" in m["content"] for m in sys_msgs)
+    assert any("优先基于上面注入的长期记忆回答" in m["content"] for m in sys_msgs), "记忆问答应注入回忆引导"
+    # 首条仍是系统提示词（M5.1：= 人设渲染 + 中文口语语言规则）
+    assert captured["sys"][0]["content"] == agent.system_prompt
     # 空记忆防编造提示已常驻注入（QA 定位：原指引只在记忆注入 if 块内，空记忆时不注入）
     assert any("历史记忆记录" in m["content"] for m in sys_msgs), "空记忆时应注入防编造提示"
     empty_hint = next(m["content"] for m in sys_msgs if "历史记忆记录" in m["content"])
@@ -188,7 +190,7 @@ def test_capability_boundary_hint_injected_on_normal_chat(monkeypatch, tmp_path)
     assert any("记住你的能力边界" in m["content"] for m in sys_msgs), "普通对话应注入能力边界强提示"
     hint = next(m["content"] for m in sys_msgs if "记住你的能力边界" in m["content"])
     assert "这个我还做不到哦" in hint
-    assert "操作电脑" in hint
+    assert "操作 TA 的电脑" in hint
     assert "绝不假装已经做完了没做过的事" in hint
 
 

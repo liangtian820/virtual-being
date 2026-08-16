@@ -17,7 +17,10 @@ import requests
 
 from app.agents.calculator_agent import CalculatorAgent
 from app.agents.knowledge_agent import KnowledgeAgent
+from app.agents.planning_agent import PlanningAgent
+from app.agents.schedule_agent import ScheduleAgent
 from app.config import CONFIG
+from app.memory.embeddings import OllamaEmbedder
 from app.memory.long_term_memory import LongTermMemory
 from app.memory.session_memory import SessionMemory
 from app.persona.prompts import build_system_prompt
@@ -117,6 +120,84 @@ def is_crisis_query(text: str) -> bool:
     return any(kw in text for kw in CRISIS_KEYWORDS)
 
 
+# M5.1（WO-20260816-22）：规划 / 日程 / 记忆问答意图检测。
+# 设计原则：强关键词保守匹配，误判宁可交人格自由发挥（不硬路由、保持人设）；
+# 不抢知识/计算分支（路由顺序：危机 → 知识 → 计算 → 记忆 → 规划 → 日程 → 普通）。
+_PLANNING_PATTERN = re.compile(
+    r"(帮我规划|帮我做个计划|帮我制定|做个计划|制定计划|规划一下|计划一下|"
+    r"帮我安排|安排一下|列个计划|立个计划|帮我计划|怎么学|怎么开始|从哪开始|从哪儿开始|"
+    r"怎么做|怎么准备|怎么入门|帮我拆分|拆分一下|目标拆解|学习计划|行动方案|制定.*方案)",
+    re.IGNORECASE,
+)
+_SCHEDULE_PATTERN = re.compile(
+    r"(提醒我|记得提醒|帮我记|记一下|日程|闹钟|待办|几点|"
+    r"有什么安排|啥安排|什么安排|安排查询|我的安排|安排列表|安排都有|"
+    r"今天有|明天有|后天有|今天的安排|明天的安排|安排一下|"
+    r"叫我起床|叫醒我|喊我起床|叫我起来)",
+    re.IGNORECASE,
+)
+_SCHEDULE_LOOKUP_PATTERN = re.compile(
+    r"(有什么安排|啥安排|什么安排|安排查询|我的安排|我的日程|安排列表|安排都有|"
+    r"今天有|明天有|后天有|今天的安排|明天的安排|待办|日程查询|查一下.*日程|日程.*是什么)",
+    re.IGNORECASE,
+)
+# 记忆问答：询问"你记得我…/我说过…/我的记忆…"（回忆 ≠ 提醒，见 is_memory_query 排除规则）
+_MEMORY_PATTERN = re.compile(
+    r"(你(还)?记得我|记不记得我|还记得我吗|你记得吗|你还记得|你记得不|"
+    r"我的记忆|记忆里|记忆有|我记得|之前说的|上次说的|我说过|我跟你说过|我给你说过|"
+    r"我之前|我上次|你了解我吗|你了解我|我的喜好|我的爱好|我喜欢什么|喜欢什么来着|"
+    r"我的计划是什么|我说过什么|我跟你讲过|我提过)",
+    re.IGNORECASE,
+)
+# 记忆列示："我的记忆有哪些"（摘要级列示，不含内部元数据）
+_MEMORY_LIST_PATTERN = re.compile(
+    r"(我的记忆有哪些|我的记忆列表|记忆列表|你有什么记忆|你都记得什么|"
+    r"我记得什么|我有哪些记忆|记忆都有|你记得我什么)",
+    re.IGNORECASE,
+)
+
+
+def is_planning_query(text: str) -> bool:
+    """判断输入是否为规划意图（目标 → 步骤清单；行动导向强词）。"""
+    return bool(_PLANNING_PATTERN.search(text))
+
+
+def is_schedule_query(text: str) -> bool:
+    """判断输入是否为日程意图（添加提醒 / 查询安排）。"""
+    return bool(_SCHEDULE_PATTERN.search(text))
+
+
+def is_schedule_lookup(text: str) -> bool:
+    """判断日程意图是否为"查询安排"（区别于"添加提醒"）。"""
+    return bool(_SCHEDULE_LOOKUP_PATTERN.search(text))
+
+
+def is_memory_query(text: str) -> bool:
+    """判断输入是否为记忆问答意图（回忆用户说过/喜欢的事）。
+
+    '你记得提醒我…' 是日程添加（记得=别忘了），不是回忆记忆——先排除日程意图。
+    """
+    if not text:
+        return False
+    if is_schedule_query(text):
+        return False
+    return bool(_MEMORY_PATTERN.search(text))
+
+
+def is_memory_list_query(text: str) -> bool:
+    """判断输入是否为记忆列示意图（『我的记忆有哪些』）。"""
+    return bool(_MEMORY_LIST_PATTERN.search(text))
+
+
+# M5.1（WO-20260816-22）：中文口语优化——追加在系统提示词后的语言规则。
+# 不动 app/persona/ 渲染层与角色卡（人设治理另管），仅在人格 Agent 组装时补充。
+_ZH_LANGUAGE_SUFFIX = (
+    "\n\n【语言】\n"
+    "- 回复全程使用简体中文口语，禁止夹带英文单词（除非是必要的专有名词或术语，如 Python、API、SQL）；\n"
+    "- 数字与时间用中文习惯表达（如『下午三点』而不是『3:00 PM』），避免翻译腔与生硬书面语。"
+)
+
+
 # M4.4（WO-20260816-21）：危机安全补丁——代码层强制专业求助引导句。
 # 不依赖模型（尤其 3b）是否遵循提示词：LLM 回复后若不含求助线索则强制追加，
 # 保证危机命中输出必有专业求助引导（安全红线，人设口吻温柔不突兀）。
@@ -148,13 +229,24 @@ class PersonaAgent:
                  base_url: Optional[str] = None, temperature: Optional[float] = None,
                  long_memory: Optional[LongTermMemory] = None) -> None:
         self._memory = memory or SessionMemory(max_turns=CONFIG.max_history_turns)
-        self._memory_long = long_memory or LongTermMemory()
+        # M3.5/M5.1：长期记忆挂 OllamaEmbedder（语义检索/融合检索可用；
+        # 嵌入服务不可用时 retrieve_fused 自动降级为关键词，向后兼容）
+        self._memory_long = long_memory or LongTermMemory(
+            embedder=OllamaEmbedder(
+                base_url=CONFIG.embedding_base_url,
+                model=CONFIG.embedding_model,
+                timeout=CONFIG.embedding_timeout,
+            )
+        )
         self._model = model or CONFIG.ollama_model
         self._base_url = base_url or CONFIG.ollama_base_url
         self._temperature = temperature if temperature is not None else CONFIG.temperature
-        self._system_prompt = build_system_prompt()
+        # M5.1：系统提示词 = 人设渲染 + 中文口语语言规则
+        self._system_prompt = build_system_prompt() + _ZH_LANGUAGE_SUFFIX
         self._knowledge = KnowledgeAgent()
         self._calculator = CalculatorAgent()
+        self._planner = PlanningAgent()      # M5.1：规划助手（WO-20 交付，复用其接口）
+        self._scheduler = ScheduleAgent()    # M5.1：日程备忘（WO-20 交付，复用其接口）
 
     def chat(self, user_input: str, session_id: Optional[str] = None,
              max_tokens: Optional[int] = None) -> tuple:
@@ -166,8 +258,10 @@ class PersonaAgent:
         sid = session_id or uuid.uuid4().hex
         self._memory.append(sid, "user", user_input)
         messages = [{"role": "system", "content": self._system_prompt}]
-        # M3 长期记忆注入：检索与该输入相关的过往记忆（新会话也能"记得用户"）
-        memories = self._memory_long.retrieve(user_input)
+        # M3/M3.5/M5.1 长期记忆注入：检索与该输入相关的过往记忆（新会话也能"记得用户"）。
+        # M5.1：由关键词检索升级为融合检索（语义 + 关键词，Ollama all-minilm；
+        # 无 embedder/服务不可用时自动退化为关键词，行为不变）
+        memories = self._memory_long.retrieve_fused(user_input)
         if not memories:
             memories = self._memory_long.recent(limit=2)
         if memories:
@@ -242,19 +336,109 @@ class PersonaAgent:
                     "content": "用户问了计算问题。请基于以下计算结果回答，用温柔治愈的语气（符合你的人设），"
                                "把算式和结果自然地说出来：\n" + context,
                 })
-        # M6 v3（WO-20260816-15，T03/T08）：普通对话路径（非危机/知识/计算）注入长度约束提示
+        # M5.1 意图路由：记忆问答 → 记忆融合检索已注入上方；此处补充回忆引导 / 记忆列示
+        elif is_memory_query(user_input):
+            if is_memory_list_query(user_input):
+                items = self._memory_long.recent(limit=20)
+                if items:
+                    lines = "\n".join(
+                        f"- [{m['kind']}] {m['content'][:40]}" for m in items
+                    )
+                    messages.append({
+                        "role": "system",
+                        "content": "用户想看看你记住了 TA 的哪些事。请用温柔治愈的语气把记忆要点自然地讲给 TA"
+                                   "（每条一两句话即可，口语化，不要照抄内部记录格式，不要编造没有的记忆）；"
+                                   "如果记忆很少，就如实说只记得这些。你记住的内容如下：\n[记忆列表]\n" + lines,
+                    })
+                else:
+                    messages.append({
+                        "role": "system",
+                        "content": "用户想看看你记住了什么，但你目前还没有 TA 的任何记忆。请温柔地告诉 TA"
+                                   "你还在慢慢了解 TA，请 TA 多跟你聊聊；绝不编造记忆。",
+                    })
+            else:
+                messages.append({
+                    "role": "system",
+                    "content": "用户在询问关于 TA 自己的记忆或过往对话（比如『你记得我喜欢什么吗』"
+                               "『我上次说的计划』）。请优先基于上面注入的长期记忆回答，自然地引用相关记忆"
+                               "（如『我记得你之前说过喜欢猫』）；如果确实没有相关记忆，就如实说"
+                               "『我这边好像没有那次的记录呢』，再请 TA 说说看；绝不编造用户说过的话。",
+                })
+        # M5.1 意图路由：规划 → 能力 Agent（PlanningAgent）取步骤清单注入（人设包装仍由本 Agent）
+        elif is_planning_query(user_input):
+            plan = self._planner.plan(user_input)
+            if plan["error"]:
+                context = f"[规划结果：失败]\n{plan['error']}"
+                messages.append({
+                    "role": "system",
+                    "content": "用户提出了一个目标希望做规划，但这次没能生成步骤清单。请用温柔治愈的语气"
+                               "告诉 TA 这次没规划出来，请 TA 把目标说得再清楚一点（比如『帮我规划周末学做饭』），"
+                               "不要编造步骤：\n" + context,
+                })
+            else:
+                steps = "\n".join(
+                    f"{s['no']}. {s['title']}（优先级：{s['priority']}）"
+                    + (f"——{s['detail']}" if s.get("detail") else "")
+                    for s in plan["steps"]
+                )
+                context = f"[规划结果]\n目标：{plan['goal']}\n步骤：\n{steps}"
+                messages.append({
+                    "role": "system",
+                    "content": "用户请帮忙做规划。请基于以下规划结果，用温柔治愈的语气（符合你的人设）"
+                               "把步骤清单自然地讲给 TA：按顺序列出步骤（口语化一点，不必照抄格式），"
+                               "并在最后温柔地问 TA 想从哪一步开始；不要额外编造步骤：\n" + context,
+                })
+        # M5.1 意图路由：日程 → 能力 Agent（ScheduleAgent）添加/查询，注入结构化结果
+        elif is_schedule_query(user_input):
+            if is_schedule_lookup(user_input):
+                today_entries = self._scheduler.today()
+                if today_entries["count"]:
+                    lines = "\n".join(
+                        f"- {e['time']} {e['event']}" for e in today_entries["entries"]
+                    )
+                    messages.append({
+                        "role": "system",
+                        "content": "用户在问今天的安排。请用温柔治愈的语气把今日日程列给 TA"
+                                   "（时间 + 事项，口语化）：\n[今日日程]\n" + lines,
+                    })
+                else:
+                    messages.append({
+                        "role": "system",
+                        "content": "用户在问今天的安排，但今天还没有日程。请温柔地告诉 TA"
+                                   "『今天还没有安排哦』，可以问问 TA 想做什么。",
+                    })
+            else:
+                sched = self._scheduler.add(user_input)
+                if sched["error"]:
+                    messages.append({
+                        "role": "system",
+                        "content": "用户想添加一条日程提醒，但没有解析成功。请用温柔治愈的语气告诉 TA 没记上，"
+                                   "并提示说得更具体（比如『明天下午 3 点提醒我喝水』）；不要假装已经记住了：\n"
+                                   + f"[日程添加：失败]\n{sched['error']}",
+                    })
+                else:
+                    messages.append({
+                        "role": "system",
+                        "content": "用户想添加一条日程提醒，已经成功记下了。请用温柔治愈的语气向 TA 确认，"
+                                   "回显日期、时间、事项（如『好呀，明天下午 3 点提醒你喝水，我记下啦～』）：\n"
+                                   + f"[日程已添加]\n日期：{sched['date']} 时间：{sched['time']} 事项：{sched['event']}",
+                    })
+        # M6 v3（WO-20260816-15，T03/T08）：普通对话路径（非危机/知识/计算/记忆/规划/日程）
+        # 注入长度约束提示
         else:
             messages.append({
                 "role": "system",
                 "content": "回复尽量简短：日常聊天一两句话就好（60 字内），情绪安抚也尽量控制在 80 字内；"
                            "说完就停下来，不要继续展开。",
             })
-            # M6 v2（WO-20260816-13，T16/R3）：能力边界强提示（普通对话路径常驻注入）
+            # M6 v2（WO-20260816-13，T16/R3）：能力边界强提示（普通对话路径常驻注入）。
+            # M5.1：日程提醒已能做，从"做不到"清单移除（避免与日程路由自相矛盾）
             messages.append({
                 "role": "system",
-                "content": "记住你的能力边界：你现在只能在对话里帮忙——查资料、算一算、陪你聊天、给建议。"
-                           "如果用户要求你操作电脑、处理文件、记录日程、控制系统，或做现实世界里的事，"
-                           "就温柔地说『这个我还做不到哦』，说明你只能在对话里帮忙，再转向你能做的小事；"
+                "content": "记住你的能力边界：你现在能在对话里帮忙——查资料、算一算、做规划、记日程、"
+                           "陪你聊天、给建议。如果用户要求你操作 TA 的电脑、读写 TA 的文件、"
+                           "控制系统或设备，或做现实世界里的事，就温柔地说『这个我还做不到哦』，"
+                           "说明你只能在对话里帮忙，再转向你能做的小事；"
                            "绝不答应『我帮你操作/直接搞定』，也绝不假装已经做完了没做过的事。",
             })
         messages.extend(self._memory.load(sid))
