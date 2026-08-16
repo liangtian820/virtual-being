@@ -8,8 +8,9 @@
 ## 当前状态：M6（打磨与展示）
 
 - ✅ M1 文本灵魂：Ollama 本地推理（qwen2.5:7b）+ 人格 Agent + 会话内记忆
-- ✅ M2 能力扩展：知识查询 + 计算能力 Agent（意图路由、人设包装）
+- ✅ M2 能力扩展：知识查询 + 计算能力 Agent（意图路由、人设包装）；M2.1 追加规划助手 + 日程备忘（WO-20260816-20）
 - ✅ M3 专属记忆：SQLite 跨会话长期记忆（fact + topic）
+- ✅ M3.5 记忆向量化：Ollama all-minilm 语义检索 + jieba 中文分词 + 语义/关键词融合（`app/memory/`）
 - ✅ M4 语音：ASR（Whisper 本地识别，中文）+ TTS（edge-tts 中文女声）+ 语音对话链路（说→听→回→播）
 - ✅ M5 形象：Web 聊天界面（程序化原创立绘 + 表情状态 + 语音控件）
 - 🚧 M6 打磨展示：README 架构图与演示脚本（进行中）、角色一致性评测（`docs/consistency_testset.md`）、GitHub 仓库准备
@@ -19,8 +20,10 @@
 | 能力 | 里程碑 | 说明 | 入口 |
 | --- | --- | --- | --- |
 | 文本对话（人格） | M1 | 温柔治愈二次元人设，Ollama qwen2.5:7b 本地推理 | `POST /chat`、`scripts/run_demo.py` |
-| 能力扩展 | M2 | 知识查询 + 计算能力 Agent（意图路由、人设包装） | `app/agents/knowledge_agent.py`、`calculator_agent.py` |
-| 专属记忆 | M3 | SQLite 跨会话长期记忆（fact/topic 抽取、去重、线程安全） | `app/memory/long_term_memory.py` |
+| 能力扩展 | M2 | 知识查询 + 计算 + 规划 + 日程备忘能力 Agent（意图路由、人设包装） | `app/agents/knowledge_agent.py`、`calculator_agent.py`、`planning_agent.py`、`schedule_agent.py` |
+| 规划助手 | M2.1 | 模糊目标 → 结构化步骤清单（目标/带序号步骤/预估优先级，LLM 生成、输出 JSON） | `app/agents/planning_agent.py`、`app/tools/planning.py` |
+| 日程备忘 | M2.1 | 自然语言提醒 → 日程条目（时间/事项）+ SQLite 持久化（`data/`，gitignored）+ 今日/明日查询 | `app/agents/schedule_agent.py`、`app/tools/schedule.py` |
+| 专属记忆 | M3/M3.5 | SQLite 跨会话长期记忆（fact/topic 抽取、去重、线程安全）+ 向量语义检索与关键词融合 | `app/memory/long_term_memory.py`、`app/memory/embeddings.py` |
 | 语音对话 | M4 | 说→听→回→播：Whisper ASR（本地识别）+ edge-tts TTS（中文女声） | `POST /chat/voice`、`scripts/run_voice_demo.py` |
 | 形象（Web 界面） | M5 | 程序化原创立绘 + 4 表情状态 + 按住说话语音控件 | `GET /`、`web/` |
 | 延迟优化 | M4.1/M4.2 | Ollama keep_alive、回复截断、TTS LRU 缓存、ASR 启动预加载 | 证据 `data/m4_voice/evidence_m4{1,2}.json` |
@@ -59,6 +62,22 @@ uvicorn app.main:app --port 8000         # Web 服务
   `ASR_PRELOAD`（1/0，默认启动预加载）、`OLLAMA_KEEP_ALIVE`（默认 `60m` 长驻）、`VOICE_MAX_REPLY_CHARS`（默认 `60`）、
   `TTS_VOICE`、`TTS_RATE`、`VOICE_REPLY_DIR` 等，见 `app/config.py`。
 - **隐私**：不保存用户语音原始数据（API 上传音频处理完即删）；不使用任何未授权音色（禁止声音克隆）。
+
+### 长期记忆（M3 / M3.5）
+
+- **存储**：SQLite 双表——`memories`（fact/topic 文本，既有结构不变）+ `memory_embeddings`（向量，
+  独立新表，旧数据按需 lazy 补向量，不迁移不破坏）。
+- **检索三接口**（`app/memory/long_term_memory.py`）：
+  - `retrieve(query, limit, days)` — 关键词检索（既有行为不变，向后兼容）
+  - `retrieve_semantic(query, k, days)` — 向量语义检索（Ollama all-minilm 余弦相似度，近义可命中）
+  - `retrieve_fused(query, limit, days)` — 语义 + 关键词加权融合（默认 0.6/0.4，可配置）
+- **中文分词**：jieba（`app/memory/embeddings.py#segment`）用于 query/文本预处理。
+- **embedding**：Ollama 本地 `all-minilm:latest`（HTTP `http://127.0.0.1:11434`，带超时；服务不可用时
+  语义/融合自动降级为关键词检索，记忆读写不受影响）。
+- **环境变量**：`EMBEDDING_MODEL`（默认 `all-minilm:latest`）、`EMBEDDING_BASE_URL`、
+  `EMBEDDING_DIM`（默认 384）、`MEMORY_SEMANTIC_THRESHOLD`（默认 0.35）、
+  `MEMORY_FUSION_SEMANTIC_WEIGHT`/`MEMORY_FUSION_KEYWORD_WEIGHT`（默认 0.6/0.4）、
+  `MEMORY_AUTO_BACKFILL`（默认 1，语义检索时对旧数据 lazy 补向量），见 `app/config.py`。
 
 ## API
 
@@ -211,7 +230,7 @@ UI（web/）语音处理中分阶段提示：识别中 → TA 正在思考 → �
 ## 测试
 
 ```powershell
-python -m pytest -q        # 全部离线：mock ASR/TTS 与外部服务（当前 90 项）
+python -m pytest -q        # 全部离线：mock ASR/TTS 与外部服务（规划/日程 Agent 亦 mock LLM）
 ```
 
 - Web 界面（M5）：`tests/test_web_ui.py`（首页路由 / 静态挂载 / 既有 API 回归护栏）。
