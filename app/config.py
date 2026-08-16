@@ -62,6 +62,24 @@ class Config:
     # M4.1 延迟优化：TTS 合成结果 LRU 缓存（key=文本+音色；目录 + 内存 LRU 容量）
     tts_cache_dir: str = field(default_factory=lambda: os.getenv("TTS_CACHE_DIR", "data/tts_cache"))
     tts_cache_size: int = field(default_factory=lambda: int(os.getenv("TTS_CACHE_SIZE", "128")))
+    # M3.5（WO-20260816-19）：记忆向量化——embedding 模型/维度/超时（Ollama 本地 all-minilm）
+    embedding_model: str = field(default_factory=lambda: os.getenv("EMBEDDING_MODEL", "all-minilm:latest"))
+    embedding_base_url: str = field(default_factory=lambda: os.getenv("EMBEDDING_BASE_URL", "http://127.0.0.1:11434"))
+    embedding_dim: int = field(default_factory=lambda: int(os.getenv("EMBEDDING_DIM", "384")))
+    embedding_timeout: float = field(default_factory=lambda: float(os.getenv("EMBEDDING_TIMEOUT", "10")))
+    # 语义检索相似度阈值（低于该值的语义结果不返回；可调低放宽、调高收紧）
+    memory_semantic_threshold: float = field(
+        default_factory=lambda: float(os.getenv("MEMORY_SEMANTIC_THRESHOLD", "0.35"))
+    )
+    # 检索融合权重（语义 + 关键词，建议和为 1）
+    memory_fusion_semantic_weight: float = field(
+        default_factory=lambda: float(os.getenv("MEMORY_FUSION_SEMANTIC_WEIGHT", "0.6"))
+    )
+    memory_fusion_keyword_weight: float = field(
+        default_factory=lambda: float(os.getenv("MEMORY_FUSION_KEYWORD_WEIGHT", "0.4"))
+    )
+    # 语义检索时对无向量旧数据 lazy 补向量（1=开，避免全量离线迁移；0=关）
+    memory_auto_backfill: bool = field(default_factory=lambda: os.getenv("MEMORY_AUTO_BACKFILL", "1") != "0")
 
 
 CONFIG = Config()

@@ -6,6 +6,13 @@ import pytest
 
 from app.memory.long_term_memory import LongTermMemory
 from app.agents.persona_agent import PersonaAgent, extract_memories
+from app.memory.embeddings import (
+    EmbeddingError,
+    cosine_similarity,
+    pack_vector,
+    segment,
+    unpack_vector,
+)
 
 
 @pytest.fixture()
@@ -221,3 +228,160 @@ def test_request_calc_chat_does_not_pollute_memory(monkeypatch, tmp_path) -> Non
     finally:
         mem.close()
     assert mem.count() == 0, f"请求/计算输入不应落库，实际 {mem.count()} 条"
+
+
+# ---------- M3.5（WO-20260816-19）：记忆向量化——jieba 分词 + 语义检索 + 融合 ----------
+
+
+class _FakeEmbedder:
+    """确定性伪 embedding（离线测试，不依赖 Ollama）：字符 bag 叠加，
+    共享字符多的文本余弦高，模拟语义相近文本向量接近。"""
+
+    def __init__(self, dim: int = 64) -> None:
+        self._dim = dim
+
+    def embed(self, text: str) -> list:
+        v = [0.0] * self._dim
+        for ch in text:
+            if ch.strip():
+                v[ord(ch) % self._dim] += 1.0
+        return v
+
+
+class _BrokenEmbedder:
+    """模拟 embedding 服务不可用（抛 EmbeddingError）。"""
+
+    def embed(self, text: str) -> list:
+        raise EmbeddingError("embedding 服务不可用（测试）")
+
+
+def test_jieba_segmentation() -> None:
+    """M3.5：jieba 中文分词应切出语义词（含单字词），过滤标点/空白。"""
+    words = segment("我家猫很可爱，我喜欢猫")
+    assert "猫" in words
+    assert "可爱" in words
+    assert "喜欢" in words
+    assert "，" not in words
+    assert all(w.strip() for w in words)
+
+
+def test_cosine_similarity_basic() -> None:
+    """M3.5：余弦相似度基础（相同=1、正交=0、不等长=0 不崩）。"""
+    assert cosine_similarity([1.0, 0.0], [1.0, 0.0]) == pytest.approx(1.0)
+    assert cosine_similarity([1.0, 0.0], [0.0, 1.0]) == pytest.approx(0.0)
+    assert cosine_similarity([1.0, 0.0], [1.0]) == 0.0
+
+
+def test_vector_pack_roundtrip() -> None:
+    """M3.5：向量 BLOB 打包/解包往返一致（float32）。"""
+    vec = [0.1, -0.2, 0.3, 0.0]
+    assert unpack_vector(pack_vector(vec)) == pytest.approx(vec)
+
+
+def test_retrieve_semantic_hits_similar_fact(tmp_path) -> None:
+    """M3.5：语义检索——近义 query 命中已存事实（『我喜欢猫』→『用户喜欢猫』）。"""
+    mem = LongTermMemory(db_path=str(tmp_path / "sem.db"), embedder=_FakeEmbedder())
+    mem.add("fact", "用户喜欢猫")
+    try:
+        hits = mem.retrieve_semantic("我喜欢猫", k=3)
+    finally:
+        mem.close()
+    assert any(h["content"] == "用户喜欢猫" for h in hits), f"语义应命中: {hits}"
+
+
+def test_retrieve_semantic_unrelated_empty(tmp_path) -> None:
+    """M3.5：语义检索——无关 query 低于阈值不返回。"""
+    mem = LongTermMemory(db_path=str(tmp_path / "sem2.db"), embedder=_FakeEmbedder())
+    mem.add("fact", "用户喜欢猫")
+    try:
+        hits = mem.retrieve_semantic("量子计算很复杂", k=3)
+    finally:
+        mem.close()
+    assert all(h["content"] != "用户喜欢猫" for h in hits)
+
+
+def test_old_data_lazy_backfill(tmp_path) -> None:
+    """M3.5：旧数据兼容——无向量旧记忆经 lazy 补向量后可语义命中，不崩。"""
+    db = str(tmp_path / "old.db")
+    mem0 = LongTermMemory(db_path=db)  # 无 embedder：旧数据无向量
+    mem0.add("fact", "用户喜欢猫")
+    mem0.close()
+    mem = LongTermMemory(db_path=db, embedder=_FakeEmbedder(), auto_backfill=True)
+    try:
+        hits = mem.retrieve_semantic("我喜欢猫", k=3)
+    finally:
+        mem.close()
+    assert any(h["content"] == "用户喜欢猫" for h in hits)
+
+
+def test_retrieve_semantic_without_embedder_returns_empty(tmp_path) -> None:
+    """M3.5：无 embedder 时语义检索返回空且不崩（离线兜底）。"""
+    mem = LongTermMemory(db_path=str(tmp_path / "noemb.db"))
+    mem.add("fact", "用户喜欢猫")
+    try:
+        assert mem.retrieve_semantic("猫", k=3) == []
+    finally:
+        mem.close()
+
+
+def test_embedder_failure_does_not_break_add(tmp_path) -> None:
+    """M3.5：embedding 服务失败不阻断记忆落库（记忆仍可关键词检索）。"""
+    mem = LongTermMemory(db_path=str(tmp_path / "brk.db"), embedder=_BrokenEmbedder())
+    mem.add("fact", "用户喜欢猫")
+    try:
+        assert mem.count() == 1
+        assert mem.retrieve("猫")[0]["content"] == "用户喜欢猫"
+        assert mem.retrieve_semantic("猫", k=3) == []  # 语义降级为空，不崩
+    finally:
+        mem.close()
+
+
+def test_fused_retrieval_merges_semantic_and_keyword(tmp_path) -> None:
+    """M3.5：检索融合——语义+关键词合并排序，语义命中优先。"""
+    mem = LongTermMemory(db_path=str(tmp_path / "fuse.db"), embedder=_FakeEmbedder())
+    mem.add("fact", "用户喜欢猫")
+    mem.add("topic", "最近在研究 LangGraph 的并行分支")
+    try:
+        hits = mem.retrieve_fused("我喜欢猫", limit=3)
+    finally:
+        mem.close()
+    assert hits[0]["content"] == "用户喜欢猫", f"语义高分应排首: {hits}"
+
+
+def test_fused_retrieval_falls_back_to_keyword_without_embedder(tmp_path) -> None:
+    """M3.5：无 embedder 时融合检索退化为纯关键词（行为与 retrieve 一致）。"""
+    mem = LongTermMemory(db_path=str(tmp_path / "fuse2.db"))
+    mem.add("fact", "用户喜欢猫")
+    try:
+        hits = mem.retrieve_fused("猫", limit=3)
+    finally:
+        mem.close()
+    assert hits[0]["content"] == "用户喜欢猫"
+
+
+def test_vector_persisted_across_instances(tmp_path) -> None:
+    """M3.5：向量持久化——重建实例后语义检索直接命中（无需重新生成已存向量）。"""
+    db = str(tmp_path / "persist_vec.db")
+    m1 = LongTermMemory(db_path=db, embedder=_FakeEmbedder())
+    m1.add("fact", "用户喜欢猫")
+    m1.close()
+    m2 = LongTermMemory(db_path=db, embedder=_FakeEmbedder())
+    try:
+        hits = m2.retrieve_semantic("我喜欢猫", k=3)
+    finally:
+        m2.close()
+    assert any(h["content"] == "用户喜欢猫" for h in hits)
+
+
+def test_keyword_retrieve_behavior_unchanged(tmp_path) -> None:
+    """M3.5 回归：既有关键词检索接口与行为不变（返回结构含 id/kind/content/score）。"""
+    mem = LongTermMemory(db_path=str(tmp_path / "kw.db"))
+    mem.add("fact", "用户喜欢猫")
+    try:
+        hits = mem.retrieve("猫", limit=3)
+    finally:
+        mem.close()
+    assert len(hits) >= 1
+    assert hits[0]["content"] == "用户喜欢猫"
+    for key in ("id", "kind", "content", "score", "created_at"):
+        assert key in hits[0]

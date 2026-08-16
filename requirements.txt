@@ -3,6 +3,8 @@ fastapi>=0.110
 uvicorn>=0.29
 pydantic>=2.6
 requests>=2.31
+# M3.5 记忆向量化：中文分词（向量检索 query/文本预处理）
+jieba>=0.42
 # M4 语音：ASR（Whisper 本地）+ TTS（edge-tts 在线）+ API 文件上传
 faster-whisper>=1.0
 edge-tts>=7.0
