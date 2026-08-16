@@ -124,7 +124,7 @@ TOOL_RULE_HINTS: dict = {
     "list_plans": "用户问保存过的计划 → 调用 list_plans；",
     "save_plan": "用户要求把计划保存/存下来（『存下来/保存这个计划』『把计划存起来』）→ 调用 save_plan；",
     # Obsidian 知识库（读取）
-    "obsidian_vault_list": "用户要看知识库/笔记的目录或文件夹结构（如『列出知识库…』）→ 调用 obsidian_vault_list；参数 path 必须用完整目录名（如 '/' 或 '30 · 项目'，含中文空格与序号前缀，不要缩写为 '30'）；",
+    "obsidian_vault_list": "用户要看知识库/笔记的目录或文件夹结构（如『列出知识库…』）→ 调用 obsidian_vault_list；参数 path 必须用完整目录名（如 '/' 或 '30 · 项目'，含中文空格与序号前缀，不要缩写为 '30'，也不要加前导斜杠）；",
     "obsidian_vault_read": "用户要看知识库某个文件的内容 → 调用 obsidian_vault_read（参数 file 传完整文件路径）；",
     "obsidian_search_simple": "用户要在知识库/笔记里搜索内容（如『知识库里有没有…』『搜一下笔记』）→ 调用 obsidian_search_simple（参数 query 传简洁关键词）；",
     "obsidian_search_query": "用户要在知识库里做复杂结构化检索 → 调用 obsidian_search_query；",

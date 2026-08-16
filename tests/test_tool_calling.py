@@ -806,3 +806,73 @@ def test_template_phrase_stripped():
     assert "辛苦啦" in out
     # 全为模板 → 保底自然语
     assert agent._strip_template_phrases("今天过得怎么样？我在呢。")
+
+
+# ---------- M6.8（WO-20260816-38）：记忆问答空记忆短路 + 条目比对宽松化 ----------
+
+
+def test_memory_qa_empty_short_circuit(monkeypatch):
+    """M6.8（QA P1）：空记忆库问『你记得我喜欢什么吗』→ 代码层短路固定如实话术，
+    不经 LLM（7B 空记忆编造不可靠，QA 实测编造『你喜欢喝咖啡』——用户没说过）。"""
+    from app.agents.persona_agent import _MEMORY_EMPTY_FALLBACK
+
+    agent = _make_agent()  # FakeMemoryLong：retrieve_fused/recent 均空
+    calls = []
+
+    def record(*a, **k):
+        calls.append(1)
+        return "我记得你喜欢喝咖啡，还特别喜欢看科幻电影哦！"
+
+    monkeypatch.setattr(agent, "_call_ollama", record)
+    reply, _ = agent.chat("你记得我喜欢什么吗", session_id="mem-empty")
+    assert reply == _MEMORY_EMPTY_FALLBACK
+    assert not calls  # 不经 LLM（零编造保证）
+
+
+class _FakeMemoryLongWithMem:
+    """假记忆库：检索有内容（用户说过）。"""
+
+    def __init__(self) -> None:
+        self.items = [{"id": "1", "kind": "fact", "content": "用户喜欢喝咖啡",
+                       "source": "s", "created_at": "2026-08-16 10:00:00", "score": 1.0}]
+
+    def retrieve_fused(self, query, limit=5, days=90, **kwargs):
+        return self.items
+
+    def recent(self, limit=2):
+        return []
+
+    def add(self, kind, content, source_session=None):
+        pass
+
+
+def test_memory_qa_with_memory_not_shortcircuited(monkeypatch):
+    """M6.8：有记忆时记忆问答正常走 LLM（自然引用记忆），不短路。"""
+    agent = _make_agent(memory_long=_FakeMemoryLongWithMem())
+    calls = []
+
+    def record(messages, max_tokens=None):
+        calls.append(1)
+        sys_text = " ".join(m["content"] for m in messages if m["role"] == "system")
+        assert "喜欢喝咖啡" in sys_text  # 真实记忆已注入
+        return "我记得你喜欢喝咖啡呢～"
+
+    monkeypatch.setattr(agent, "_call_ollama", record)
+    reply, _ = agent.chat("你记得我喜欢什么吗", session_id="mem-has")
+    assert calls  # 走了 LLM
+    assert "咖啡" in reply
+
+
+def test_item_match_lenient_normalization():
+    """M6.8（QA C02-2 误判）：条目比对宽松化——空格/尾斜杠/全角/大小写变体识别为真实。"""
+    agent = _make_agent()
+    # 归一化
+    assert agent._normalize_for_match("AI 虚拟人物 ") == "ai虚拟人物"
+    assert agent._normalize_for_match("AI虚拟人物/") == "ai虚拟人物"
+    assert agent._normalize_for_match("　AI虚拟人物/　") == "ai虚拟人物"
+    assert agent._normalize_for_match("Ai虚拟人物") == "ai虚拟人物"
+    # 空格改写变体不误判为编造
+    assert not agent._stage2_has_fabrication("知识库里有 AI 虚拟人物 文件夹", ["AI虚拟人物/"])
+    assert not agent._stage2_has_fabrication("知识库里有：AI 虚拟人物 / 文件夹", ["AI虚拟人物/"])
+    # 真实编造仍判出
+    assert agent._stage2_has_fabrication("知识库里有 计算机编程基础 文件夹", ["AI虚拟人物/"])

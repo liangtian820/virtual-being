@@ -158,24 +158,20 @@ def test_memory_injection_prompt_anti_fabrication(monkeypatch, tmp_path) -> None
 
 
 def test_empty_memory_injects_anti_fabrication_hint(monkeypatch, tmp_path) -> None:
-    """M6 v2（T28 代码层）：空记忆库时应注入『无历史记忆记录』防编造提示（不再依赖 system rules 兜底）。"""
+    """M6 v2（T28）+ M6.8（WO-20260816-38）：空记忆库记忆问答 → 代码层短路固定如实话术
+    （『没有那次的记录』），不经 LLM——比提示词注入更硬，零编造保证。"""
+    from app.agents.persona_agent import _MEMORY_EMPTY_FALLBACK
+
     mem = LongTermMemory(db_path=str(tmp_path / "empty.db"))
     agent, captured = _capture_agent(tmp_path, mem, monkeypatch)
     try:
-        agent.chat("你还记得我上周跟你说的那个计划吗？", session_id="empty-session")
+        reply, _ = agent.chat("你还记得我上周跟你说的那个计划吗？", session_id="empty-session")
     finally:
         mem.close()
-    sys_msgs = captured["sys"]
-    # M5.1：『你还记得我…』命中记忆问答路由 → 注入回忆引导，但空记忆无真实内容块
-    assert not any("以下是用户过往对话中的长期记忆" in m["content"] for m in sys_msgs)
-    assert any("优先基于上面注入的长期记忆回答" in m["content"] for m in sys_msgs), "记忆问答应注入回忆引导"
-    # 首条仍是系统提示词（M5.1：= 人设渲染 + 中文口语语言规则）
-    assert captured["sys"][0]["content"] == agent.system_prompt
-    # 空记忆防编造提示已常驻注入（QA 定位：原指引只在记忆注入 if 块内，空记忆时不注入）
-    assert any("历史记忆记录" in m["content"] for m in sys_msgs), "空记忆时应注入防编造提示"
-    empty_hint = next(m["content"] for m in sys_msgs if "历史记忆记录" in m["content"])
-    assert "我这边好像没有那次的记录呢" in empty_hint
-    assert "绝不虚构用户说过的话" in empty_hint
+    # M6.8：空记忆问答短路固定话术（7B 空记忆编造不可靠，代码层兜底，不经 LLM）
+    assert reply == _MEMORY_EMPTY_FALLBACK
+    assert "没有那次的记录" in reply
+    assert not captured.get("sys"), "空记忆问答不应经 LLM（无回忆引导注入）"
 
 
 def test_capability_boundary_hint_injected_on_normal_chat(monkeypatch, tmp_path) -> None:

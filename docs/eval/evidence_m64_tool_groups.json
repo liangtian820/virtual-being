@@ -3,10 +3,19 @@
   "registry_total": 16,
   "cases": [
     {
+      "input": "你记得我喜欢什么吗",
+      "expected_tool_prefix": "memory",
+      "elapsed_s": 0.01,
+      "reply": "我这边好像没有那次的记录呢，你可以跟我说说～",
+      "tool_call_rounds": [],
+      "tool_executions": [],
+      "memory_qa_empty_short_circuit": true
+    },
+    {
       "input": "帮我搜一下 DeepSeek 最新新闻",
       "expected_tool_prefix": "web_search",
-      "elapsed_s": 29.54,
-      "reply": "嗯嗯，我帮你查到了：DeepSeek| Into the Unknown、DeepSeek- Windows官方下载 | 微软应用商店 | Microsoft Store、DeepSeek官网 –DeepSeek官方下载 | 国产开源大模型旗舰 ...，就这些哦。",
+      "elapsed_s": 29.82,
+      "reply": "我帮你查到了一些关于 DeepSeek 的信息：\n\n1. DeepSeek| Into the Unknown，链接是 [这里](https://www.deepseek.com/)，它是一个专注于构建世界领先通用人工智能的AI研究公司。\n2. DeepSeekPlatform，链接是 [这里](https://platform.deepseek.com/)，提供API平台让你接入他们的AI模型和资源文档。\n3. 还有一个DeepSeek官网的链接 [这里](https://agents-deepseek.com.cn/)，提到DeepSeek-V4-Pro正式版发布，Agent能力大幅提升。\n\n这些信息可能就是你需要的内容了。如果你需要更多详细的信息或者有其他问题，随时告诉我哦！",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -19,7 +28,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_7ss64ikc",
+              "id": "call_ff2ay0x7",
               "function": {
                 "index": 0,
                 "name": "web_search",
@@ -48,7 +57,7 @@
           "arguments": {
             "query": "DeepSeek 最新新闻"
           },
-          "result": "1. DeepSeek| Into the Unknown\n   链接：https://www.deepseek.com/\n   摘要：2 天之前 · DeepSeek is an AI research company focused on building world-leading general artificial intelligence. We develop and …\n2. DeepSeek- Windows官方下载 | 微软应用商店 | Microsoft Store\n   链接：https://apps.microsoft.com/detail/xpffxg0g03wn69?hl=zh-CN&gl=CN\n   摘要：DeepSeek 官方推出的 AI 助手，免费体验与全球领先 AI 模型的互动交流。 搭载 DeepSeek 最新旗舰模型，用更快的速度、更加全面 …\n3. DeepSeek官网 –DeepSeek官方下载 | 国产开源大模型旗舰 ...\n   链接：https://agents-deepseek.com.cn/\n   摘要：2 天之前 · DeepSeek官网是国产领先的开源大模型平台，DeepSeek-V4-Pro正式版发布，Agent能力大幅提升，支持 Responses API  …"
+          "result": "1. DeepSeek| Into the Unknown\n   链接：https://www.deepseek.com/\n   摘要：2 天之前 · DeepSeek is an AI research company focused on building world-leading general artificial intelligence. We develop and …\n2. DeepSeekPlatform\n   链接：https://platform.deepseek.com/\n   摘要：Join DeepSeek API platform to access our AI models, developer resources and API documentation.\n3. DeepSeek官网 –DeepSeek官方下载 | 国产开源大模型旗舰 ...\n   链接：https://agents-deepseek.com.cn/\n   摘要：2 天之前 · DeepSeek官网是国产领先的开源大模型平台，DeepSeek-V4-Pro正式版发布，Agent能力大幅提升，支持 Responses API  …"
         }
       ],
       "triggered": true,
@@ -57,16 +66,16 @@
       "no_fabrication": true,
       "true_items": [
         "DeepSeek| Into the Unknown",
-        "DeepSeek- Windows官方下载 | 微软应用商店 | Microsoft Store",
+        "DeepSeekPlatform",
         "DeepSeek官网 –DeepSeek官方下载 | 国产开源大模型旗舰 ..."
       ],
-      "items_match_true_result": false
+      "items_match_true_result": true
     },
     {
       "input": "列出知识库里 30 项目的文档",
       "expected_tool_prefix": "obsidian",
-      "elapsed_s": 12.18,
-      "reply": "我帮你查到了，30 项目里有个 AI虚拟人物 文件夹。",
+      "elapsed_s": 14.27,
+      "reply": "我帮你查到了，30个项目里有一个叫做「AI虚拟人物」的文件夹哦。",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -83,7 +92,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_oaxas9ro",
+              "id": "call_fz51kd81",
               "function": {
                 "index": 0,
                 "name": "obsidian_vault_list",
@@ -119,6 +128,7 @@
           "result": "{\n  \"files\": [\n    \"AI虚拟人物/\"\n  ]\n}"
         }
       ],
+      "retries": 0,
       "triggered": true,
       "chinese_no_mojibake": true,
       "reply_conveys_tool_result": true,
@@ -131,8 +141,8 @@
     {
       "input": "明天下午3点提醒我喝水",
       "expected_tool_prefix": "schedule",
-      "elapsed_s": 10.82,
-      "reply": "好的呢，我已经帮你安排好了，明天下午三点会有喝水的小提醒哦。到时候记得喝一杯水，保持身体水分哦~",
+      "elapsed_s": 10.95,
+      "reply": "好的哦，我已经帮你安排好了，明天下午三点会有提醒记得喝水。这样可以确保你不会忘记。有其他需要帮忙的吗？",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -145,7 +155,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_x7bvy6sf",
+              "id": "call_4qyr7fd0",
               "function": {
                 "index": 0,
                 "name": "add_schedule",
@@ -183,8 +193,8 @@
     {
       "input": "DeepSeek Harness 是什么",
       "expected_tool_prefix": "knowledge",
-      "elapsed_s": 28.8,
-      "reply": "嗯嗯，我帮你查到了：DeepSeek Harness-DeepSeek推出的开源 AI Agent ...、DeepSeek Harness2026：一切皆插件 — 开发者预览版完全 ...、DeepSeek Harness教程 | 菜鸟教程，就这些哦。",
+      "elapsed_s": 48.07,
+      "reply": "DeepSeek Harness 是由 DeepSeek AI 推出的一个开源项目，主要用于构建和管理各种 AI Agent。\n\nDeepSeek Harness2026：一切皆插件 — 开发者预览版完全公开了更多的开发细节和功能。\n\nDeepSeek Harness 教程 | 菜鸟教程 哦，这里有详细的使用指南和示例，适合初学者学习。你可以看看这些资料，应该能对你有所帮助的！",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -197,7 +207,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_upbq5pr1",
+              "id": "call_mlajih2f",
               "function": {
                 "index": 0,
                 "name": "query_knowledge",
@@ -236,8 +246,8 @@
     {
       "input": "LangChain 是什么",
       "expected_tool_prefix": "knowledge",
-      "elapsed_s": 14.4,
-      "reply": "LangChain 是一个用于构建复杂 AI 系统的框架，它可以让你把多个 AI 能力和人格 Agent 组合在一起，就像是搭积木一样灵活配置呢。本项目里用 LangGraph 来安排这些小 AI 们如何合作，让它们能更好地帮你解决问题哦。",
+      "elapsed_s": 13.36,
+      "reply": "LangChain 是一个支持多Agent协作的平台，主要用于编排不同的智能模块一起工作。我们这个项目里，就是用 LangGraph 来组织各种不同功能的AI小助手们合作呢。",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -250,7 +260,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_afcgxrfz",
+              "id": "call_hrkfyc7s",
               "function": {
                 "index": 0,
                 "name": "query_knowledge",
@@ -289,7 +299,7 @@
     {
       "input": "DeepSeek Harness 是干嘛的？",
       "expected_tool_prefix": "knowledge",
-      "elapsed_s": 34.28,
+      "elapsed_s": 49.39,
       "reply": "嗯嗯，我帮你查到了：DeepSeek Harness 是什么，怎么用？一篇写给开发者的“黑鲸 ...、Harness（DeepSeek内部团队）_百度百科、DeepSeek Harness-DeepSeek推出的开源 AI Agent ...，就这些哦。",
       "tool_call_rounds": [
         {
@@ -303,7 +313,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_aczx9c6e",
+              "id": "call_33loqbb2",
               "function": {
                 "index": 0,
                 "name": "query_knowledge",
@@ -337,24 +347,24 @@
       ],
       "triggered": true,
       "no_answer_phrase": false,
-      "retries": 1
+      "retries": 2
     },
     {
       "input": "你好呀",
       "expected_tool_prefix": "greeting",
-      "elapsed_s": 3.19,
-      "reply": "嘿，你好呀！最近怎么样？我在呢。",
+      "elapsed_s": 3.18,
+      "reply": "嘿 yarg，你好呢",
       "tool_call_rounds": [],
       "tool_executions": [],
       "natural_wording": true,
       "template_hits": [],
       "greeting_samples": [
         "你好呀",
-        "你好呀",
-        "你好呀",
-        "嘿～ 你好呀",
+        "嗨～ 你好呀",
         "嗨嗨，你好呀",
-        "你好呀！很高兴遇见你～有什么想聊的吗？"
+        "嘿，你好呀",
+        "你好呀",
+        "嘿咻，你好呀"
       ]
     }
   ],
@@ -362,8 +372,8 @@
     "input": "明天下午3点提醒我喝水（强制 LLM 不选工具）",
     "schedule_recorded": true,
     "no_fake_promise": true,
-    "elapsed_s": 4.24,
-    "reply": "好呀，明天下午3点提醒你喝水，我记下啦～记得多喝水对身体好哦！如果到时候你忙忘了，我也会温柔地提醒你的。",
+    "elapsed_s": 4.36,
+    "reply": "好呀，明天下午3点提醒你喝水，我记下啦～记得多喝水对身体好哦。如果你觉得渴了，也可以随时来找我聊聊，我在呢。",
     "tool_call_rounds": [],
     "tool_executions": []
   },
@@ -371,8 +381,8 @@
     "input": "列出知识库里 30 项目的文档（vault_list 返回空 {\"files\": []}）",
     "honest_not_found": true,
     "fabricated_samples": [],
-    "elapsed_s": 3.42,
-    "reply": "这个还查不到哦。我们可以试试别的问题或者聊聊天，分散一下注意力？",
+    "elapsed_s": 3.9,
+    "reply": "这个还查不到哦。我们可以换一个话题聊聊看？比如你最近有啥有趣的事情想和我分享吗？",
     "tool_call_rounds": [],
     "tool_executions": [
       {

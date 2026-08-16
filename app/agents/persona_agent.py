@@ -310,6 +310,11 @@ _EMPTY_RESULT_FALLBACK = "嗯嗯，我这边没有找到相关内容呢，换个
 # 只含真实条目，绝不把编造条目给用户。
 _FABRICATION_FALLBACK = "嗯嗯，我帮你查到了：{items}，就这些哦。"
 
+# M6.8（WO-20260816-38，QA P1）：记忆问答且检索为空（空记忆库）时的固定如实话术——
+# 7B 空记忆编造不可靠（实测空库问『你记得我喜欢什么吗』编造『你喜欢喝咖啡』），
+# 与空结果模式同思路：代码层短路，不经 LLM。
+_MEMORY_EMPTY_FALLBACK = "我这边好像没有那次的记录呢，你可以跟我说说～"
+
 
 class PersonaAgent:
     """人格 Agent：人设注入 + 会话记忆 + 意图路由 + Ollama 推理。"""
@@ -385,6 +390,16 @@ class PersonaAgent:
                            "或者拨打心理援助热线（如 12356 或当地心理援助热线），都会有人认真听 TA 说。"
                            "用平时的温柔口吻，不敷衍、不慌张、不说教。",
             })
+        # M6.8（WO-20260816-38，QA P1）：记忆问答且检索为空（retrieve_fused 与 recent 均空，
+        # 空记忆库）→ 代码层短路直接返回固定如实话术，不经 LLM——7B 空记忆编造不可靠
+        # （QA 实测：空库问『你记得我喜欢什么吗』编造『你喜欢喝咖啡，还喜欢看科幻电影』，
+        # 用户从未说过；与空结果模式同思路：代码层保证零编造）。有记忆时正常走（自然引用）。
+        if (is_memory_query(user_input) and not memories
+                and not is_crisis_query(user_input)):
+            for kind, content in extract_memories(user_input):
+                self._memory_long.add(kind, content, source_session=sid)
+            self._memory.append(sid, "assistant", _MEMORY_EMPTY_FALLBACK)
+            return _MEMORY_EMPTY_FALLBACK, sid
         # M6.1（WO-20260816-29）：工具调用路径（非危机分支）——让 LLM 自主决定是否调用工具。
         # 返回语义：tool_reply 非 None 且（用了工具 或 无需关键词路由）→ 直接采用；
         # 其余情况（工具路径失败 / 未用工具但意图命中需确定性操作）→ 落到下方关键词路由链。
@@ -1098,18 +1113,32 @@ class PersonaAgent:
                 n += 1
         return n
 
+    @staticmethod
+    def _normalize_for_match(s: str) -> str:
+        """条目比对归一化：去首尾空白/内部空白/尾斜杠、全角→半角、小写。
+
+        M6.8（WO-20260816-38，QA C02-2 误判）：真实条目 'AI虚拟人物/' 在回复中被合理改写
+        （如『AI 虚拟人物』插空格、『AI 虚拟人物/』尾斜杠、全角空格、大小写）时必须识别为真实。
+        """
+        if not s:
+            return ""
+        s = s.strip().replace("　", " ").replace("\u3000", " ")
+        # 常用全角 → 半角（中文/数字/字母不受影响）
+        s = s.translate(str.maketrans("，。！？（）；：", ",.!?();:"))
+        return re.sub(r"\s+", "", s).strip("/").lower()
+
     def _stage2_has_fabrication(self, reply: str, true_items: list) -> bool:
         """非空结果下判断回复是否编造填充：
-        - 回复含真实条目 → 比对列表项数（> 真实条数 = 编造）；
+        - 回复含真实条目（归一化宽松比对）→ 比对列表项数（> 真实条数 = 编造）；
         - 回复不含真实条目且非『没找到』 → 编造/回避（如 QA 实测编造 5 条全为结果外）。
         """
         if not true_items or not (reply or "").strip():
             return False
         if any(kw in reply for kw in _EMPTY_RESULT_HINTS):
             return False  # 如实没找到，不判
-        # 条目比对宽松化：去尾斜杠/空白（如真实条目 'AI虚拟人物/' 在回复中常无尾斜杠）
-        reply_flat = re.sub(r"\s+", "", reply)
-        if any(it.strip().strip("/") and it.strip().strip("/") in reply_flat for it in true_items):
+        reply_flat = self._normalize_for_match(reply)
+        norm_items = [self._normalize_for_match(it) for it in true_items]
+        if any(ni and ni in reply_flat for ni in norm_items):
             return self._count_reply_list_items(reply) > len(true_items)
         return True  # 声称列出但回复中无任何真实条目
 
@@ -1149,7 +1178,7 @@ class PersonaAgent:
     # 导致返回空结果；schema 描述补充完整目录名提示，增强进候选 schema 的深拷贝副本）
     _OBSIDIAN_ARG_HINTS = {
         "path": "（path 必须用完整目录名，如 '30 · 项目'——注意中文空格与序号前缀，"
-                "不要缩写为 '30'；'/' 表示知识库根目录）",
+                "不要缩写为 '30'，也不要加前导斜杠（'/' 单独表示根目录，如 '/30 · 项目' 是错误写法））",
         "query": "（query 用简洁关键词；如需限定目录，配合完整目录名，如 '30 · 项目'）",
     }
 
