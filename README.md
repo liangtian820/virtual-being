@@ -27,7 +27,8 @@
   **意图预筛 + 候选工具子集**（`app/tools/tool_groups.py`，每组 ≤8）只把候选组 schema 交给 LLM；
   『帮我搜一下 X 新闻』→ web_search、『列出知识库里 30 项目的文档』→ obsidian_* 均真实可用（工具调用证据 `docs/eval/evidence_m64_tool_groups.json`）；
   候选未命中 → 回退关键词路由（联网搜索/知识库目录确定性兜底，不编造）；26 工具全部保留在注册表，只是决策时按组裁剪；
-  附 MCP 中文解码修复：`app/mcp_client.py` 对 text/event-stream 无 charset 响应硬设 `resp.encoding="utf-8"`（requests 默认按 ISO-8859-1 解码导致 Obsidian 中文乱码）
+  附 MCP 中文解码修复：`app/mcp_client.py` 对 text/event-stream 无 charset 响应硬设 `resp.encoding="utf-8"`（requests 默认按 ISO-8859-1 解码导致 Obsidian 中文乱码）；
+  阶段 2 结果保真（WO-20260816-33）：工具结果以中文标签可读化呈现并强制如实回显（逐条念出目录/文件名，禁止『做不到/没查到』式回避），知识库/搜索请求不落长期记忆 topic
 
 ## 功能清单
 

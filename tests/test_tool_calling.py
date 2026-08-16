@@ -392,3 +392,46 @@ def test_obsidian_intent_deterministic_fallback(monkeypatch):
         assert reply == "（知识库兜底回复）"
     finally:
         global_registry.unregister("obsidian_vault_list")
+
+
+def test_stage2_prompt_conveys_tool_results(monkeypatch):
+    """WO-20260816-33 QA P1②：阶段 2 消息必须如实回显真实工具结果（可读标签 + 内容），
+    结果指令在用户输入之前，且明确要求逐条念出、禁止『做不到/没查到/没有记录』式回避。"""
+    from app.plugins.registry import registry as global_registry
+
+    global_registry.register(
+        "obsidian_vault_list",
+        {"type": "function", "function": {"name": "obsidian_vault_list", "description": "列目录",
+                                          "parameters": {"type": "object", "properties": {}}}},
+        lambda args: '{"files": ["AI虚拟人物/"]}',
+    )
+    try:
+        agent = _make_agent()
+        script = iter([
+            {"content": "", "tool_calls": [
+                {"function": {"name": "obsidian_vault_list", "arguments": {"path": "30 · 项目"}}}]},
+            {"content": "", "tool_calls": None},
+        ])
+        captured = {}
+
+        def record_stage2(messages, max_tokens=None):
+            captured["msgs"] = messages
+            return "好的～"
+
+        monkeypatch.setattr(agent, "_call_ollama_with_tools", lambda *a, **k: next(script))
+        monkeypatch.setattr(agent, "_call_ollama", record_stage2)
+        agent.chat("列出知识库里 30 项目的文档", session_id="stage2-fidelity")
+        sys_msgs = [m for m in captured["msgs"] if m["role"] == "system"]
+        result_msg = sys_msgs[-1]  # 结果指令是阶段 2 追加的最后一个 system 消息
+        assert "AI虚拟人物" in result_msg["content"]        # 工具结果内容真实传入阶段 2
+        assert "知识库目录列表" in result_msg["content"]     # 结果以人类可读标签呈现
+        # QA P1②：明确禁止『做不到/没查到/没有记录』式回避 + 要求逐条念出（如实回显）
+        assert "不要说自己做不到" in result_msg["content"]
+        assert "没有记录" in result_msg["content"] or "查不到" in result_msg["content"]
+        assert "念出来" in result_msg["content"] and "如实" in result_msg["content"]
+        # 结果指令在用户输入之前（system→user 顺序，QA 建议）
+        idx_sys = captured["msgs"].index(result_msg)
+        idx_user = next(i for i, m in enumerate(captured["msgs"]) if m["role"] == "user")
+        assert idx_sys < idx_user
+    finally:
+        global_registry.unregister("obsidian_vault_list")

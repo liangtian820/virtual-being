@@ -7,8 +7,9 @@
       "expected_tool_prefix": "web_search",
       "triggered": true,
       "chinese_no_mojibake": true,
-      "elapsed_s": 24.48,
-      "reply": "嗯嗯，找到了一些关于 DeepSeek 的最新消息。V4 Pro 正式版已经在最近上线了，性能提升了不少呢！不过它还是通过官方 API 接口发布的，没有大规模宣传。还有个网站列出了 DeepSeek 开源模型的完整列表，包括 V3、Coder 等多个版本哦。你对哪个版本比较感兴趣？",
+      "reply_conveys_tool_result": true,
+      "elapsed_s": 21.99,
+      "reply": "找到了一些关于 DeepSeek 的最新消息呢：\n\n1. 有一篇是 DeepSeek-V4-Pro 的官方版本已经发布，性能提升了不少。\n2. 还有提到 DeepSeek 在深夜悄悄上线了 V4 Pro 正式版模型，性能接近 Fable 5。\n\n这些都是最近几天的信息哦。想了解更多细节可以点开链接看看，里面有更详细的介绍和更新内容。需要帮助的地方尽管说。",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -21,7 +22,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_78pjpk05",
+              "id": "call_nyvq4asx",
               "function": {
                 "index": 0,
                 "name": "web_search",
@@ -59,8 +60,9 @@
       "expected_tool_prefix": "obsidian",
       "triggered": true,
       "chinese_no_mojibake": true,
-      "elapsed_s": 15.38,
-      "reply": "嗯嗯，这个我还做不到哦。不过我可以帮你查资料或者给你一些建议。你想要了解些什么方面的信息呢？比如学习方法、放松技巧还是其他什么内容？我来陪你聊聊天吧！",
+      "reply_conveys_tool_result": true,
+      "elapsed_s": 11.92,
+      "reply": "30个项目里有“AI虚拟人物”的文件夹呢，里面包含了关于AI的一些资料。需要我再帮你找些什么吗？",
       "tool_call_rounds": [
         {
           "round": 1,
@@ -77,7 +79,7 @@
           ],
           "tool_calls": [
             {
-              "id": "call_ku4l2pd9",
+              "id": "call_gllng3at",
               "function": {
                 "index": 0,
                 "name": "obsidian_vault_list",
@@ -114,5 +116,6 @@
         }
       ]
     }
-  ]
+  ],
+  "memory_noise_free": true
 }

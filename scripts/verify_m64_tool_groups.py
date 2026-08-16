@@ -106,12 +106,20 @@ def main() -> int:
         chinese_ok = (not exec_text) or bool(re.search(r"[\u4e00-\u9fff]", exec_text))
         if expected_prefix == "obsidian" and not exec_text:
             chinese_ok = False  # obsidian 场景必须真实执行出结果
-        all_ok = all_ok and triggered and chinese_ok
+        # WO-20260816-33 QA P1②：回复必须如实回显真实结果（含结果中的中文片段），
+        # 不回避、不说『做不到/没有记录』（修复前回复为『这个我还做不到哦』）
+        result_frags = re.findall(r"[\u4e00-\u9fff]{2,}", exec_text)
+        reply_faithful = (not result_frags) or any(f in (reply or "") for f in result_frags)
+        if expected_prefix == "obsidian":
+            all_ok = all_ok and triggered and chinese_ok and reply_faithful
+        else:
+            all_ok = all_ok and triggered and chinese_ok
         case = {
             "input": text,
             "expected_tool_prefix": expected_prefix,
             "triggered": triggered,
             "chinese_no_mojibake": chinese_ok,
+            "reply_conveys_tool_result": reply_faithful,
             "elapsed_s": elapsed,
             "reply": reply,
             "tool_call_rounds": list(rounds_log),   # 快照拷贝（下一轮会 clear 原列表）
@@ -125,11 +133,23 @@ def main() -> int:
         for e in exec_log:
             print(f"  [exec] {e['name']}({e['arguments']}) -> {e['result'][:160]}")
 
+    # WO-20260816-33 QA P2：搜索/知识库请求不落 topic（隔离库实测，修复前
+    # 『列出知识库里 30 项目的文档』被记为 topic 造成记忆噪音）
+    recent = agent._memory_long.recent(limit=50)
+    noise = [
+        m["content"] for m in recent
+        if m["kind"] == "topic" and ("列出知识库" in m["content"] or "搜一下" in m["content"])
+    ]
+    memory_clean = not noise
+    all_ok = all_ok and memory_clean
+    evidence["memory_noise_free"] = memory_clean
+
     os.makedirs(os.path.dirname(EVIDENCE_PATH), exist_ok=True)
     with open(EVIDENCE_PATH, "w", encoding="utf-8") as f:
         json.dump(evidence, f, ensure_ascii=False, indent=2)
+    print(f"\n记忆噪音检查：{'PASS（搜索/知识库请求未落 topic）' if memory_clean else 'FAIL: ' + str(noise)}")
     print(f"\n证据已写入 {EVIDENCE_PATH}")
-    print(f"验收结论：{'PASS（两个场景均有 tool_calls 证据，obsidian 中文不乱码）' if all_ok else 'FAIL'}")
+    print(f"验收结论：{'PASS（tool_calls 证据 + obsidian 中文不乱码 + 回复如实回显 + 无记忆噪音）' if all_ok else 'FAIL'}")
     return 0 if all_ok else 1
 
 

@@ -849,18 +849,25 @@ class PersonaAgent:
                     stage1.append({"role": "tool", "name": name, "content": result})
             if not used_any:
                 return None, False, False
-            # 阶段 2：人设包装（完整系统提示词 + 记忆 + 用户输入 + 工具结果）
-            tool_results = "\n".join(
-                f"[{m.get('name', 'tool')}] {m['content']}" for m in stage1 if m["role"] == "tool"
-            )
+            # 阶段 2：人设包装（完整系统提示词 + 记忆 + 工具结果指令 + 用户输入）
+            # WO-20260816-33（QA P1②）：工具结果必须以人类可读标签呈现并如实回显——
+            # 原『用户请求已通过内部能力处理，处理结果为…』指令 + user→system 顺序下，
+            # 7B 面对 JSON 结果仍回复『这个我还做不到哦/我这边好像没有那次的记录呢』，
+            # 用户看不到 vault 真实内容。改为：结果指令在前（声明结果已真实拿到、
+            # 逐条念出目录/文件名、禁止『做不到/没查到/没有记录』式回避），用户输入在后。
+            tool_results = self._format_tool_results(stage1)
             msgs2 = list(messages) + [
-                {"role": "user", "content": user_input},
                 {
                     "role": "system",
-                    "content": "用户请求已通过内部能力处理，处理结果为：\n" + tool_results
-                               + "\n请用人设口吻把结果自然地告诉用户（确认/回显/建议都行，"
-                                 "不要提『工具』『函数』『系统』等词，保持温柔治愈、简短口语）。",
+                    "content": "用户刚才的请求已经通过内部能力成功执行，真实结果见下方【执行结果】。\n"
+                               "请直接把结果内容讲给用户，规则：\n"
+                               "① 结果里有目录/文件名/列表/条目时，逐条如实念出来（如『30 · 项目 里有 AI虚拟人物 文件夹』）；\n"
+                               "② 结果就是真实答案，绝对不要说自己做不到、不要说『我这边没有记录/查不到』、"
+                               "不要回避、不要编造结果之外的内容；\n"
+                               "③ 用温柔治愈的口吻，简短口语，不要提『工具』『函数』『系统』『内部』等词。\n"
+                               "【执行结果】\n" + tool_results,
                 },
+                {"role": "user", "content": user_input},
             ]
             try:
                 reply = self._call_ollama(msgs2, max_tokens)
@@ -872,6 +879,48 @@ class PersonaAgent:
         except Exception:
             # 阶段 1 尚未执行工具即异常 → 回退关键词路由安全（无副作用）
             return None, False, True
+
+    # M6.4（WO-20260816-33，QA P1②）：工具结果人类可读标签——把原始 JSON/结果按工具
+    # 语义标注成中文说明（如 obsidian_vault_list → 知识库目录列表），帮助 7B 理解结果
+    # 并如实转述，避免把技术化结果误当『做不到/没查到』而回避。
+    _TOOL_RESULT_LABELS = {
+        "get_schedule": "日程安排",
+        "add_schedule": "日程添加结果",
+        "mark_schedule_done": "日程完成标记结果",
+        "delete_schedule": "日程删除结果",
+        "query_memory": "记忆检索结果",
+        "query_knowledge": "知识查询结果",
+        "calculate": "计算结果",
+        "list_plans": "计划列表",
+        "save_plan": "计划保存结果",
+        "web_search": "联网搜索结果",
+        "obsidian_vault_list": "知识库目录列表",
+        "obsidian_vault_read": "知识库文件内容",
+        "obsidian_search_simple": "知识库搜索结果",
+        "obsidian_search_query": "知识库检索结果",
+        "obsidian_vault_get_document_map": "知识库文档结构",
+        "obsidian_active_file_get_path": "当前打开的文件",
+        "obsidian_tag_list": "知识库标签列表",
+        "obsidian_open_file": "打开文件结果",
+        "obsidian_vault_write": "知识库写入结果",
+        "obsidian_vault_append": "知识库追加结果",
+        "obsidian_vault_patch": "知识库修改结果",
+        "obsidian_vault_delete": "知识库删除结果",
+        "obsidian_vault_move": "知识库移动结果",
+        "obsidian_vault_copy": "知识库复制结果",
+        "obsidian_command_list": "可用命令列表",
+        "obsidian_command_execute": "命令执行结果",
+    }
+
+    def _format_tool_results(self, stage1: List[dict]) -> str:
+        """把阶段 1 的工具结果格式化为人类可读呈现（工具名 → 中文标签 + 内容）。"""
+        lines = []
+        for m in stage1:
+            if m["role"] != "tool":
+                continue
+            label = self._TOOL_RESULT_LABELS.get(m.get("name", ""), m.get("name", "工具"))
+            lines.append(f"[{label}] {m['content']}")
+        return "\n".join(lines)
 
     @staticmethod
     def _needs_keyword_route(text: str) -> bool:
