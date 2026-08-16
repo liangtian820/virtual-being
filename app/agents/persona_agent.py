@@ -37,8 +37,12 @@ _CALC_FORMULA_PATTERN = re.compile(
 )
 
 # M3：用户事实提取规则（名字/喜好/身份/地点等）
+# P3-3 收窄：含糊前缀"我是/我在"后接动作动词（说/想/看/觉得…）不是事实，排除误报，
+# 如"我是觉得…/我在想…/我在看…/我是说…"；"我是学生/我在上海"仍保留。
+_VERB_FOLLOW = r"(?:说|想|看|觉得|认为|打算|准备|等|听|做|写|读|问|找|用|玩|讲|聊|感觉)"
 _FACT_PATTERN = re.compile(
-    r"(?:我喜欢|我爱|我不喜欢|我讨厌|我的名字是|我叫|我的生日|我是|我住在|我家在|我在|我今年|我喜欢吃).{0,30}",
+    r"(?:(?:我喜欢|我爱|我不喜欢|我讨厌|我的名字是|我叫|我的生日|我住在|我家在|我今年|我喜欢吃)"
+    r"|(?:我是|我在)(?!{})).{{0,30}}".format(_VERB_FOLLOW),
     re.IGNORECASE,
 )
 
@@ -124,11 +128,15 @@ class PersonaAgent:
                                "把算式和结果自然地说出来：\n" + context,
                 })
         messages.extend(self._memory.load(sid))
-        reply = self._call_ollama(messages)
+        # M3 长期记忆提取（P3-4）：先提取、再落库（finally），即使 Ollama 抛异常，
+        # 本次用户事实/话题也不丢失。
+        extracted = extract_memories(user_input)
+        try:
+            reply = self._call_ollama(messages)
+        finally:
+            for kind, content in extracted:
+                self._memory_long.add(kind, content, source_session=sid)
         self._memory.append(sid, "assistant", reply)
-        # M3 长期记忆提取：对话后记录用户事实与话题（供未来会话使用）
-        for kind, content in extract_memories(user_input):
-            self._memory_long.add(kind, content, source_session=sid)
         return reply, sid
 
     def _call_ollama(self, messages: List[dict]) -> str:
