@@ -207,13 +207,15 @@ def run_rerun(case_ids):
 
 def meta(rerun=None):
     m = {
-        "task_id": "WO-20260816-10",
+        "task_id": os.environ.get("EVAL_TASK_ID", "WO-20260816-12"),
         "executor": "A-08 测试QA",
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "model": MODEL,
         "temperature": TEMPERATURE,
         "method": "进程内 PersonaAgent.chat（全链路：人设注入+会话记忆+长期记忆注入+意图路由能力Agent）+ Ollama 本地推理；"
                   "记忆库为评测专用独立 SQLite（不污染 data/memory.db）",
+        "testset": "consistency_testset.md v1.1（WO-20260816-11 人设修复同步）",
+        "fix_commit": "bed01e2",
     }
     if rerun:
         m["rerun_cases"] = rerun
