@@ -34,6 +34,8 @@ class Config:
     app_port: int = field(default_factory=lambda: int(os.getenv("APP_PORT", "8000")))
     temperature: float = field(default_factory=lambda: float(os.getenv("PERSONA_TEMPERATURE", "0.8")))
     max_history_turns: int = field(default_factory=lambda: int(os.getenv("PERSONA_MAX_HISTORY_TURNS", "10")))
+    # M4.1 延迟优化：Ollama keep_alive 长驻（如 "60m"），消除每次对话的模型冷启动
+    ollama_keep_alive: str = field(default_factory=lambda: os.getenv("OLLAMA_KEEP_ALIVE", "60m"))
     # M4 语音配置（ASR）：Whisper 本地识别，中文支持
     asr_model_size: str = field(default_factory=lambda: os.getenv("ASR_MODEL_SIZE", "small"))
     asr_device: str = field(default_factory=lambda: os.getenv("ASR_DEVICE", "auto"))
@@ -48,6 +50,13 @@ class Config:
     tts_rate: str = field(default_factory=lambda: os.getenv("TTS_RATE", "+0%"))
     # M4 回复音频落盘目录（相对项目根）
     voice_reply_dir: str = field(default_factory=lambda: os.getenv("VOICE_REPLY_DIR", "data/voice_replies"))
+    # M4.1 延迟优化：语音回复长度约束（字符数，仅语音链路生效；None=不限制）
+    voice_max_reply_chars: Optional[int] = field(
+        default_factory=lambda: int(os.getenv("VOICE_MAX_REPLY_CHARS", "60"))
+    )
+    # M4.1 延迟优化：TTS 合成结果 LRU 缓存（key=文本+音色；目录 + 内存 LRU 容量）
+    tts_cache_dir: str = field(default_factory=lambda: os.getenv("TTS_CACHE_DIR", "data/tts_cache"))
+    tts_cache_size: int = field(default_factory=lambda: int(os.getenv("TTS_CACHE_SIZE", "128")))
 
 
 CONFIG = Config()

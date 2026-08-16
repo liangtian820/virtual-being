@@ -140,12 +140,17 @@ class PersonaAgent:
         return reply, sid
 
     def _call_ollama(self, messages: List[dict]) -> str:
-        """调用 Ollama /api/chat（非流式）。"""
+        """调用 Ollama /api/chat（非流式）。
+
+        M4.1：带 keep_alive 长驻参数（默认 60m），让模型常驻显存/内存，
+        消除连续对话间的模型冷启动（实测 17s → 数次秒内）。
+        """
         url = f"{self._base_url.rstrip('/')}/api/chat"
         payload = {
             "model": self._model,
             "messages": messages,
             "stream": False,
+            "keep_alive": CONFIG.ollama_keep_alive,
             "options": {"temperature": self._temperature},
         }
         try:

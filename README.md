@@ -103,6 +103,38 @@ curl -F "file=@user.mp3" http://127.0.0.1:8000/chat/voice
 **GPU 加速说明**：本机无 CUDA Toolkit，Whisper 走 GPU 需 `pip install nvidia-cublas-cu12` 并把
 `<venv>\Lib\site-packages\nvidia\cublas\bin` 加入 PATH；未配置时 ASR 自动回退 CPU int8（如实降级，不假装 GPU 可用）。
 
+## M4.1 延迟优化（实测对比，证据 `data/m4_voice/evidence_m41.json`）
+
+| 分段 | 优化前（M4 基线） | 优化后（M4.1） | 变化 |
+| --- | --- | --- | --- |
+| LLM 冷启动（首调） | 17.3s | 3.4s | keep_alive 长驻生效（-80%） |
+| LLM（热态对话） | 4.5s | 4.1s | 稳定 <5s |
+| TTS（未命中缓存） | 1.7s | 1.5~2.5s | — |
+| TTS（缓存命中） | — | **7.7ms** | 跳过在线合成 |
+| 端到端（热态） | 9.7s | 8.3s | 下降 14%（受 ASR 波动影响） |
+| 长回复场景 | 22.1s（425 字全文合成） | 43 字截断后合成 | 语音时长大幅缩短 |
+
+M4.1 三项优化：
+
+1. **Ollama keep_alive 长驻**（`OLLAMA_KEEP_ALIVE`，默认 `60m`）：模型常驻显存/内存，
+   冷启动 17.3s → 3.4s，热态对话稳定 <5s（`ollama ps` 可见 UNTIL 59min）。
+2. **语音回复长度约束**（`VOICE_MAX_REPLY_CHARS`，默认 `60`）：pipeline 在 TTS 前截断到句末标点；
+   真实链路 425 字长回复 → 43 字语音（完整回复保留在 `reply_full`，会话记忆与文本 API 不受影响）。
+3. **TTS LRU 缓存**（`TTS_CACHE_DIR`/`TTS_CACHE_SIZE`，默认 `data/tts_cache`/128）：
+   key = 文本+音色+语速（sha1），命中直接复用音频（实测 7.7ms vs 未命中 1.4s）。
+
+**ASR 权衡实测**（同输入 4.03s 中文，3 次中位数，准确率均 1.0，证据 `data/m4_voice/asr_bench.json`）：
+
+| 配置 | 延迟 | 建议 |
+| --- | --- | --- |
+| small/GPU（int8_float16） | 324ms | 当前默认；需 cuBLAS + PATH |
+| base/GPU（int8_float16） | 228ms | 显存紧张/延迟敏感首选 |
+| base/CPU（int8） | 937ms | 无 GPU 且可接受约 1s 时推荐 |
+| small/CPU（int8） | 2523ms | 默认回退路径 |
+
+**遗留风险**：链路上 ASR 实测 2.6~9.3s 波动（首次 GPU 推理初始化 + 与 Ollama 争抢 6GB 显存），
+单独基准仅约 0.3s；建议语音服务常驻时 ASR 固定 CPU 或换 base/GPU、并让 Ollama 与 ASR 显存错峰。
+
 ## 测试
 
 ```powershell
