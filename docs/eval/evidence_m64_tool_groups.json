@@ -1,0 +1,116 @@
+{
+  "mcp_tools_registered": 16,
+  "registry_total": 16,
+  "cases": [
+    {
+      "input": "帮我搜一下 DeepSeek 最新新闻",
+      "expected_tool_prefix": "web_search",
+      "triggered": true,
+      "elapsed_s": 24.77,
+      "reply": "嗯嗯，DeepSeek 的最新信息主要是关于他们的AI研究和平台开发。有一个官网更新说他们发布了新版本的Agent，支持更多的功能哦！你可以去访问一下 [DeepSeek官网](https://agents-deepseek.com.cn/) 查看详细内容。还有其他想知道的信息吗？",
+      "tool_call_rounds": [
+        {
+          "round": 1,
+          "tools_given_count": 4,
+          "tools_given": [
+            "query_knowledge",
+            "web_search",
+            "obsidian_search_simple",
+            "obsidian_vault_list"
+          ],
+          "tool_calls": [
+            {
+              "id": "call_5iujiuql",
+              "function": {
+                "index": 0,
+                "name": "web_search",
+                "arguments": {
+                  "query": "DeepSeek 最新新闻"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "round": 2,
+          "tools_given_count": 4,
+          "tools_given": [
+            "query_knowledge",
+            "web_search",
+            "obsidian_search_simple",
+            "obsidian_vault_list"
+          ],
+          "tool_calls": []
+        }
+      ],
+      "tool_executions": [
+        {
+          "name": "web_search",
+          "arguments": {
+            "query": "DeepSeek 最新新闻"
+          },
+          "result": "1. DeepSeek| Into the Unknown\n   链接：https://www.deepseek.com/\n   摘要：2 天之前 · DeepSeek is an AI research company focused on building world-leading general artificial intelligence. We develop and …\n2. DeepSeek官网 –DeepSeek官方下载 | 国产开源大模型旗舰 ...\n   链接：https://agents-deepseek.com.cn/\n   摘要：2 天之前 · DeepSeek官网是国产领先的开源大模型平台，DeepSeek-V4-Pro正式版发布，Agent能力大幅提升，支持 Responses API  …\n3. DeepSeekPlatform\n   链接：https://platform.deepseek.com/\n   摘要：Join DeepSeek API platform to access our AI models, developer resources and API documentation."
+        }
+      ]
+    },
+    {
+      "input": "列出知识库里 30 项目的文档",
+      "expected_tool_prefix": "obsidian",
+      "triggered": true,
+      "elapsed_s": 13.58,
+      "reply": "好的呢，我这边查了一下，知识库里的项目好像没有正好 30 个哦。不过我可以帮你看看有哪些内容比较接近 30 个项目数的。要不要一起看看？或者你有特别想了解的内容吗？我在呢。",
+      "tool_call_rounds": [
+        {
+          "round": 1,
+          "tools_given_count": 8,
+          "tools_given": [
+            "obsidian_vault_list",
+            "obsidian_vault_read",
+            "obsidian_search_simple",
+            "obsidian_search_query",
+            "obsidian_vault_get_document_map",
+            "obsidian_active_file_get_path",
+            "obsidian_tag_list",
+            "obsidian_open_file"
+          ],
+          "tool_calls": [
+            {
+              "id": "call_efm3ikgn",
+              "function": {
+                "index": 0,
+                "name": "obsidian_vault_list",
+                "arguments": {
+                  "path": "30 · 项目"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "round": 2,
+          "tools_given_count": 8,
+          "tools_given": [
+            "obsidian_vault_list",
+            "obsidian_vault_read",
+            "obsidian_search_simple",
+            "obsidian_search_query",
+            "obsidian_vault_get_document_map",
+            "obsidian_active_file_get_path",
+            "obsidian_tag_list",
+            "obsidian_open_file"
+          ],
+          "tool_calls": []
+        }
+      ],
+      "tool_executions": [
+        {
+          "name": "obsidian_vault_list",
+          "arguments": {
+            "path": "30 · 项目"
+          },
+          "result": "{\n  \"files\": [\n    \"AIèæäººç©/\"\n  ]\n}"
+        }
+      ]
+    }
+  ]
+}

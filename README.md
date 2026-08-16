@@ -22,6 +22,11 @@
 - 🚧 M6 打磨展示：README 架构图与演示脚本（进行中）、角色一致性评测（`docs/consistency_testset.md`）、GitHub 仓库准备
 - ✅ M6.1 LLM 工具调用（WO-20260816-29）：qwen2.5:7b 在对话中**自主调用既有能力工具**（日程增删查/完成、计划列表/保存、记忆、知识、计算），
   两阶段编排（无人设工具决策 → 人设包装回复），危机分支最高优先、工具失败回退关键词路由（原逻辑不破坏）
+- ✅ M6.3 插件化 + MCP：`ToolRegistry`（可插拔）+ Obsidian MCP 客户端（streamable-HTTP，16 个工具），启动自动注册（`MCP_SERVERS`）
+- ✅ M6.4 候选工具组（WO-20260816-32）：工具集扩到 26 个后 qwen2.5:7b 面对整表 schema 选型失效（无 tool_calls）→
+  **意图预筛 + 候选工具子集**（`app/tools/tool_groups.py`，每组 ≤8）只把候选组 schema 交给 LLM；
+  『帮我搜一下 X 新闻』→ web_search、『列出知识库里 30 项目的文档』→ obsidian_* 均真实可用（工具调用证据 `docs/eval/evidence_m64_tool_groups.json`）；
+  候选未命中 → 回退关键词路由（联网搜索/知识库目录确定性兜底，不编造）；26 工具全部保留在注册表，只是决策时按组裁剪
 
 ## 功能清单
 
@@ -39,6 +44,8 @@
 | 能力面板（Web） | M5.2 | 日程面板（今日/明日 + 增删完成）、规划面板（列表/删除 + 对话内步骤卡片）、记忆面板（查看/清空带确认） | `web/`、`/schedule`、`/plans`、`/memory` |
 | 延迟优化 | M4.1/M4.2 | Ollama keep_alive、回复截断、TTS LRU 缓存、ASR 启动预加载 | 证据 `data/m4_voice/evidence_m4{1,2}.json` |
 | LLM 工具调用 | M6.1 | qwen2.5:7b 原生 function calling：对话中自主调用 9 个工具（日程增删查/完成、计划列表/保存、记忆、知识、计算），两阶段决策+人设包装；`TOOL_CALLING_ENABLED` 开关，失败自动回退关键词路由 | `app/tools/tool_specs.py`、`app/agents/persona_agent.py` |
+| 插件/MCP | M6.3 | ToolRegistry 可插拔工具 + Obsidian MCP（streamable-HTTP，16 工具），`MCP_SERVERS` 启动注册，服务器不可达不阻断 | `app/plugins/registry.py`、`app/mcp_client.py` |
+| 候选工具组 | M6.4 | 26 工具下 LLM 选型修复：意图预筛候选工具组（每组 ≤8），只给 LLM 候选 schema（web_search/obsidian 真实可用），候选未命中回退关键词路由；26 工具全保留仅按组裁剪 | `app/tools/tool_groups.py`、`app/agents/persona_agent.py` |
 
 ## 快速开始
 

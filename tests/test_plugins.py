@@ -69,7 +69,6 @@ def test_loader_empty_autoload():
 def test_persona_agent_dispatches_registry_tool(monkeypatch):
     """注册表工具经 _execute_tool 分发执行（插件可插拔生效）。"""
     from app.plugins.registry import registry as global_registry
-    from app.tools.tool_specs import get_tool_specs
 
     name = "fake_plugin_tool"
     global_registry.register(
@@ -87,7 +86,35 @@ def test_persona_agent_dispatches_registry_tool(monkeypatch):
         agent = PersonaAgent()
         out = agent._execute_tool(name, {"q": "插上了"})
         assert out == "插件：插上了"
-        # 工具路径的 schema 聚合应包含插件工具
+        object.__setattr__(CONFIG, "tool_calling_enabled", orig)
+    finally:
+        from app.config import CONFIG
+        object.__setattr__(CONFIG, "tool_calling_enabled", False)
+        global_registry.unregister(name)
+
+
+def test_persona_agent_candidate_schemas_include_obsidian_tools(monkeypatch):
+    """M6.4：知识库意图时，候选 schema 含 Obsidian MCP 工具（按组裁剪，≤8，
+    不再全量 26 个；注册表工具仍可插拔分发）。"""
+    from app.plugins.registry import registry as global_registry
+
+    global_registry.register(
+        "obsidian_vault_list",
+        {"type": "function", "function": {"name": "obsidian_vault_list", "description": "列出目录",
+                                          "parameters": {"type": "object", "properties": {}}}},
+        lambda args: "['30 · 项目/', 'AGENTS.md']",
+    )
+    global_registry.register(
+        "obsidian_search_simple",
+        {"type": "function", "function": {"name": "obsidian_search_simple", "description": "知识库搜索",
+                                          "parameters": {"type": "object", "properties": {}}}},
+        lambda args: "['AGENTS.md']",
+    )
+    try:
+        from app.config import CONFIG
+        orig = CONFIG.tool_calling_enabled
+        object.__setattr__(CONFIG, "tool_calling_enabled", True)
+        agent = PersonaAgent()
         captured = {}
 
         def record(messages, tools, max_tokens=None):
@@ -96,12 +123,15 @@ def test_persona_agent_dispatches_registry_tool(monkeypatch):
 
         monkeypatch.setattr(agent, "_call_ollama_with_tools", record)
         monkeypatch.setattr(agent, "_call_ollama", lambda *a, **k: "好的～")
-        agent.chat("提醒我明天喝水", session_id="plug-session")
-        assert name in captured["names"]
-        assert "add_schedule" in captured["names"]  # 内置工具仍在
-        assert len(captured["names"]) == len(get_tool_specs()) + 1
+        agent.chat("列出知识库里 30 项目的文档", session_id="plug-session")
+        names = captured["names"]
+        assert "obsidian_vault_list" in names
+        assert "obsidian_search_simple" in names
+        assert len(names) <= 8
+        assert "add_schedule" not in names  # 日程工具不在知识库候选里
         object.__setattr__(CONFIG, "tool_calling_enabled", orig)
     finally:
         from app.config import CONFIG
         object.__setattr__(CONFIG, "tool_calling_enabled", False)
-        global_registry.unregister(name)
+        global_registry.unregister("obsidian_vault_list")
+        global_registry.unregister("obsidian_search_simple")

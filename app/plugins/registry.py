@@ -50,6 +50,13 @@ class ToolRegistry:
         """聚合启用工具的 schema（供 Ollama /api/chat tools 参数）。"""
         return [t["schema"] for t in self._tools.values() if t["enabled"]]
 
+    def schema(self, name: str) -> Optional[dict]:
+        """按名取启用工具的 schema（未注册/未启用返回 None）。供候选组按名裁剪。"""
+        tool = self._tools.get(name)
+        if not tool or not tool["enabled"]:
+            return None
+        return tool["schema"]
+
     def call(self, name: str, arguments: dict) -> str:
         """执行工具：未注册/未启用/执行异常 → 返回错误说明（不抛异常，交 LLM 处理）。"""
         tool = self._tools.get(name)

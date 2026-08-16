@@ -26,6 +26,7 @@ from app.memory.long_term_memory import LongTermMemory
 from app.memory.session_memory import SessionMemory
 from app.persona.prompts import build_system_prompt
 from app.plugins.registry import registry as tool_registry
+from app.tools.tool_groups import TOOL_GROUPS, TOOL_RULE_HINTS, select_candidate_tool_names
 from app.tools.tool_specs import get_tool_specs
 
 # 知识查询意图关键词（起步版简单规则；后续可换模型判断）
@@ -192,6 +193,69 @@ def is_memory_list_query(text: str) -> bool:
     return bool(_MEMORY_LIST_PATTERN.search(text))
 
 
+# M6.4（WO-20260816-32）：联网搜索意图——强词保守匹配（搜一下/新闻/资讯/热点等）。
+# 与 _KNOWLEDGE_PATTERN 的"搜索/查询"部分重叠（两者都进知识/资讯候选组），
+# 本检测专门覆盖不含知识关键词的搜索表达（『帮我搜一下 X 新闻』）。
+_WEB_SEARCH_PATTERN = re.compile(
+    r"(帮我搜|搜一下|搜一搜|搜搜|上网查|网上查|联网查|"
+    r"查一下.*(新闻|资讯|消息|动态|最新)|"
+    r"(新闻|资讯|热点|最新消息|实时信息|新鲜事|有什么新消息|最近.*(新闻|消息))|"
+    r"网上.*(有没有|是什么|怎么样))",
+    re.IGNORECASE,
+)
+
+
+def is_web_search_query(text: str) -> bool:
+    """判断输入是否为联网搜索意图（搜一下/新闻/资讯/热点…）。"""
+    return bool(_WEB_SEARCH_PATTERN.search(text))
+
+
+def extract_search_query(text: str) -> str:
+    """从搜索类输入提取搜索关键词（用于确定性兜底搜索）。
+
+    去掉"帮我/请/麻烦"前缀与搜索动词（搜一下/搜索/查一下…），保留关键词；
+    剥不动则回退原文。
+    """
+    q = re.sub(
+        r"^\s*(?:帮我|请|麻烦|给我)?\s*(?:搜一下|搜一搜|搜搜|搜索|上网查|网上查|查一下|查查|搜)\s*",
+        "", text, count=1,
+    )
+    q = q.strip(" ，。！？;；、")
+    return q or (text or "").strip()
+
+
+# M6.4（WO-20260816-32）：知识库/笔记领域意图（Obsidian MCP 工具）。
+# 名词强词（知识库/笔记库/vault…）+ 查看类动词短语（列出/打开/读取…文档/文件）。
+# 保守匹配：误判宁可回退关键词路由，不硬路由。
+_OBSIDIAN_PATTERN = re.compile(
+    r"(知识库|笔记库|资料库|我的笔记|vault|obsidian|Obsidian)",
+    re.IGNORECASE,
+)
+_OBSIDIAN_LOOKUP_PATTERN = re.compile(
+    r"(列出|打开|读取|查看|搜索|找一下|查一下|看看|浏览|有哪些).{0,10}(笔记|文档|文件|目录|知识库)",
+    re.IGNORECASE,
+)
+# 写入/管理意图：写动词 + 知识库/笔记/文档/文件 名词（如『把这段笔记保存到知识库』）
+_OBSIDIAN_WRITE_PATTERN = re.compile(
+    r"(保存到|写入|写进|存到|记到|追加|修改|更新|删掉|删除|移除|移动|重命名|复制|新建|保存).{0,8}(知识库|笔记|文档|文件|vault)",
+    re.IGNORECASE,
+)
+
+
+def is_obsidian_query(text: str) -> bool:
+    """判断输入是否为知识库/笔记查询意图（Obsidian MCP 领域）。"""
+    if not text:
+        return False
+    return bool(_OBSIDIAN_PATTERN.search(text) or _OBSIDIAN_LOOKUP_PATTERN.search(text))
+
+
+def is_obsidian_write_query(text: str) -> bool:
+    """判断知识库意图是否为写入/管理（区别于只读查询）。"""
+    if not text:
+        return False
+    return bool(_OBSIDIAN_WRITE_PATTERN.search(text))
+
+
 # M5.1（WO-20260816-22）：中文口语优化——追加在系统提示词后的语言规则。
 # 不动 app/persona/ 渲染层与角色卡（人设治理另管），仅在人格 Agent 组装时补充。
 _ZH_LANGUAGE_SUFFIX = (
@@ -317,6 +381,23 @@ class PersonaAgent:
                     self._memory_long.add(kind, content, source_session=sid)
                 self._memory.append(sid, "assistant", reply)
                 return reply, sid
+        # M6.4 意图路由：知识库/笔记（Obsidian MCP 领域）——工具路径未用工具时的
+        # 确定性兜底：列知识库根目录注入真实数据（保底真实，不编造）。
+        elif is_obsidian_query(user_input):
+            if tool_registry.has("obsidian_vault_list"):
+                try:
+                    listing = tool_registry.call("obsidian_vault_list", {"path": "/"})
+                except Exception as exc:
+                    listing = f"（知识库读取失败：{exc}）"
+            else:
+                listing = "（知识库工具未连接）"
+            messages.append({
+                "role": "system",
+                "content": "用户在问知识库/笔记相关内容。请基于以下知识库根目录的真实内容回答，"
+                           "用温柔治愈的语气（符合你的人设），要点式简短；"
+                           "只讲真实存在的目录/文件，不要编造；知识库不可用就如实说明：\n"
+                           "[知识库根目录]\n" + listing,
+            })
         # M2 意图路由：知识查询 → 能力 Agent 取结果注入（人设包装仍由本 Agent）
         elif is_knowledge_query(user_input):
             result = self._knowledge.query(user_input)
@@ -341,6 +422,23 @@ class PersonaAgent:
                                "按查询结果如实写）；"
                                "③ 专业术语拼写要准确，不编造：\n" + context,
                 })
+        # M6.4 意图路由：联网搜索——工具路径未用工具时的确定性兜底：
+        # 直接执行 web_search 注入真实结果（保底真实资讯，不编造）。
+        elif is_web_search_query(user_input):
+            query = extract_search_query(user_input)
+            try:
+                from app.tools.web_search import search_text
+                result = search_text(query)
+            except Exception as exc:
+                result = f"（联网搜索失败：{exc}）"
+            if not (result or "").strip():
+                result = "（没有搜到相关结果）"
+            messages.append({
+                "role": "system",
+                "content": "用户要求联网搜索。请基于以下真实搜索结果回答，用温柔治愈的语气（符合你的人设），"
+                           "要点式简洁并附上结果来源链接；只依据搜索结果如实讲，"
+                           "不要编造搜索里没有的内容；没搜到就如实说明：\n[搜索结果]\n" + result,
+            })
         # M3 意图路由：计算 → 能力 Agent（CalculatorAgent）取结果注入（人设包装仍由本 Agent）
         elif is_calculator_query(user_input):
             calc = self._calculator.calculate(user_input)
@@ -623,20 +721,12 @@ class PersonaAgent:
     # M6.1（WO-20260816-29）：阶段 1 工具决策指引（无人设、仅规则）——实测 qwen2.5:7b
     # 在带人设系统提示词（含 few-shot 对话示例）时不主动调用工具，去掉人设后正常触发。
     # 因此工具决策与人设回复分两阶段：决策用本指引，回复用人设系统提示词。
+    # M6.4（WO-20260816-32）：通用规则保留在此（防假完成红线）；具体"工具→触发词"
+    # 规则按候选组裁剪（_build_tool_guidance，只讲本轮可用的工具，帮助 7B 聚焦）。
     _TOOL_USE_GUIDANCE = (
         "你可以调用工具来更好地帮助用户。规则：\n"
-        "- 用户说『提醒我/记得提醒/帮我记/记一下/闹钟/待办/几点提醒/叫我起床』等要记录提醒的话 → 必须调用 add_schedule（参数 text 传用户原话）；\n"
-        "- 用户问『今天/明天有什么安排/我的日程/我的安排』 → 调用 get_schedule；\n"
-        "- 用户表示某条提醒已完成/办完了（『完成了/做完了』『标记完成』）→ 调用 mark_schedule_done；\n"
-        "- 用户要求删除某条提醒（『删掉/取消/移除』）→ 调用 delete_schedule；\n"
-        "- 用户问『你记得我…/我说过…/我的记忆/我之前…』 → 调用 query_memory；\n"
-        "- 用户问知识概念（什么是/介绍一下/查一下/帮我查）→ 调用 query_knowledge；\n"
-        "- 用户要求算数/百分比（算一下/多少的/百分之）→ 调用 calculate；\n"
-        "- 用户问保存过的计划 → 调用 list_plans；\n"
-        "- 用户要求把计划保存/存下来（『存下来/保存这个计划』『把计划存起来』）→ 调用 save_plan；\n"
-        "- 用户问最新资讯/新闻/教程/实时信息，或内置知识库查不到的内容 → 调用 web_search（参数 query 传简洁关键词）。\n"
-        "只有用户请求确实对应某个工具时才调用；闲聊、情绪陪伴等不需要工具时直接温柔回复即可。\n"
-        "重要：绝对不要在没有调用工具并确认工具返回成功的情况下，声称『已经记下了/已删除/已标记完成/已保存』；"
+        "- 只有用户请求确实对应某个工具时才调用；闲聊、情绪陪伴等不需要工具时直接温柔回复即可。\n"
+        "- 重要：绝对不要在没有调用工具并确认工具返回成功的情况下，声称『已经记下了/已删除/已标记完成/已保存/已查到』；"
         "工具未执行或返回错误时，如实告诉用户没能办成（如『这个我还没帮你弄好呢』）。"
     )
 
@@ -644,13 +734,58 @@ class PersonaAgent:
     # 不能回退关键词路由（会重复执行工具，如二次添加日程），改用中性确认语。
     _TOOL_DONE_FALLBACK = "嗯嗯，已经帮你处理好啦～有需要再找我哦。"
 
+    def _build_tool_guidance(self, candidate_names: List[str]) -> str:
+        """按候选工具裁剪的阶段 1 指引：通用规则 + 仅本轮可用工具的触发规则。
+
+        26 工具时 7B 面对整表规则+整表 schema 选型失效；候选组 ≤8 后，
+        指引也只讲这 ≤8 个工具，显著降低 7B 的遵循负担。
+        """
+        lines = ["你可以调用下面这些工具来更好地帮助用户。规则："]
+        for n in candidate_names:
+            hint = TOOL_RULE_HINTS.get(n)
+            if hint:
+                lines.append("- " + hint)
+        obsidian_in_cand = [n for n in candidate_names if n.startswith("obsidian_")]
+        if obsidian_in_cand:
+            lines.append(
+                "- obsidian_* 工具读写你的 Obsidian 知识库（真实笔记数据）："
+                "用户要看知识库目录/文件用 obsidian_vault_list / obsidian_vault_read，"
+                "要在知识库里搜索用 obsidian_search_simple，要保存/修改笔记用 obsidian_vault_write / obsidian_vault_patch 等；"
+                "不要凭空编造知识库内容，一律用工具拿真实数据。"
+            )
+        lines.append("- 只有用户请求确实对应某个工具时才调用；闲聊、情绪陪伴等不需要工具时直接温柔回复即可。")
+        lines.append("- 重要：绝对不要在没有调用工具并确认工具返回成功的情况下，"
+                     "声称『已经记下了/已删除/已标记完成/已保存/已查到』；"
+                     "工具未执行或返回错误时，如实告诉用户没能办成（如『这个我还没帮你弄好呢』）。")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _candidate_tool_schemas(candidate_names: List[str]) -> list:
+        """按候选工具名裁剪 schema：内置集 + 注册表（含插件/MCP）按名取，缺失跳过。
+
+        26 个工具仍全部在注册表（可插拔不丢），只是本轮只把候选组 schema 交给 LLM。
+        """
+        by_name = {s["function"]["name"]: s for s in get_tool_specs()}
+        schemas = []
+        for n in candidate_names:
+            if n in by_name:
+                schemas.append(by_name[n])
+            else:
+                ext = tool_registry.schema(n)
+                if ext:
+                    schemas.append(ext)
+        return schemas
+
     def _try_tool_calling(self, user_input: str, messages: List[dict],
                           history: Optional[List[dict]] = None,
                           max_tokens: Optional[int] = None):
         """两阶段 LLM 工具调用（≤3 轮工具决策，随后人设包装回复）。
 
-        阶段 1（工具决策）：规则指引 + 最近会话历史 + 用户输入（不带人设系统提示词，
-        实测 7B 在无人设下才会调用工具）；执行工具并回填。
+        M6.4（WO-20260816-32）：阶段 1 只带候选工具组 schema（意图预筛，每组 ≤8，
+        含插件/MCP 工具）；候选为空 → 回退关键词路由（保底确定性）。
+
+        阶段 1（工具决策）：按候选组的规则指引 + 最近会话历史 + 用户输入
+        （不带人设系统提示词，实测 7B 在无人设下才会调用工具）；执行工具并回填。
         阶段 2（人设回复）：完整人设系统提示词 + 记忆 + 用户输入 + 工具结果 →
         人设化最终回复（不传 tools，避免压制）。
 
@@ -661,22 +796,23 @@ class PersonaAgent:
           调用方回退关键词路由（无副作用，安全）。
         """
         try:
-            tools = get_tool_specs()
-            # 插件/MCP 工具（迭代 5，M6.3）：合并注册表 schema，工具可插拔
-            ext_tools = tool_registry.schemas()
-            if ext_tools:
-                tools = list(tools) + ext_tools
+            candidate_names = select_candidate_tool_names(user_input)
+            if not candidate_names:
+                candidate_names = list(TOOL_GROUPS["default"])
+            tools = self._candidate_tool_schemas(candidate_names)
+            if not tools:
+                # 候选组无可用工具（如 Obsidian 未连接）→ 回退关键词路由（无副作用）
+                return None, False, False
             stage1 = [
-                {"role": "system", "content": self._TOOL_USE_GUIDANCE},
+                {"role": "system", "content": self._build_tool_guidance(candidate_names)},
             ]
-            # M6.3：外部 MCP/插件工具提示（帮助 7B 识别带前缀的工具，如 obsidian_ 开头）
-            ext_names = [n for n in tool_registry.names() if "_" in n and tool_registry.has(n)]
-            if ext_names:
-                prefix_hint = "、".join(sorted({n.split("_", 1)[0] for n in ext_names}))
+            # M6.3/M6.4：外部 MCP/插件工具提示（仅候选内存在外部工具时注入）
+            cand_ext = [n for n in candidate_names if tool_registry.has(n)]
+            if any(n.startswith("obsidian_") for n in cand_ext):
                 stage1.append({
                     "role": "system",
-                    "content": (f"另有来自外部服务器的工具（前缀 {prefix_hint}_）："
-                                "当用户提到对应领域（如知识库/笔记/Obsidian 文档）时，"
+                    "content": ("另有来自外部服务器的工具（前缀 obsidian_）："
+                                "当用户提到知识库/笔记/Obsidian 文档，或要求列出/搜索/保存笔记时，"
                                 "优先调用这些工具获取真实数据，不要凭空编造。"),
                 })
             if history:
@@ -743,6 +879,8 @@ class PersonaAgent:
             or is_memory_query(text)
             or is_planning_query(text)
             or is_schedule_query(text)
+            or is_web_search_query(text)     # M6.4：联网搜索（『帮我搜一下 X 新闻』）
+            or is_obsidian_query(text)       # M6.4：知识库/笔记（Obsidian MCP）
         )
 
     @property

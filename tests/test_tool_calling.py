@@ -2,12 +2,14 @@
 
 覆盖：工具选择→执行→回填→最终回复循环、工具失败反馈、危机分支不经工具、
 未用工具且意图命中时回退关键词路由、工具 schema 完整性、_execute_tool 各工具薄封装。
+M6.4（WO-20260816-32）：阶段 1 只带候选组 schema（意图预筛，≤8）、指引按候选裁剪。
 全部 mock LLM 与能力 Agent（不依赖 Ollama/网络）。
 """
 import pytest
 
 from app.agents.persona_agent import PersonaAgent
 from app.config import CONFIG
+from app.tools.tool_groups import TOOL_GROUPS
 from app.tools.tool_specs import get_tool_specs
 
 
@@ -323,8 +325,70 @@ def test_tool_decision_injects_recent_history(monkeypatch):
 
 
 def test_guidance_contains_no_fake_completion_rule():
-    """M6.2：工具指引含『不得未调用工具即声称已完成』防假完成规则。"""
+    """M6.2/M6.4：工具指引含『不得未调用工具即声称已完成』防假完成规则；
+    指引按候选组裁剪后，日程/规划工具的触发规则仍在对应候选组指引里。"""
     agent = _make_agent()
-    g = agent._TOOL_USE_GUIDANCE
+    g = agent._build_tool_guidance(list(TOOL_GROUPS["schedule"]) + list(TOOL_GROUPS["planning"]))
     assert "不要在没有调用工具" in g and "声称" in g
     assert "mark_schedule_done" in g and "delete_schedule" in g and "save_plan" in g
+
+
+# ---------- M6.4（WO-20260816-32）：候选组裁剪 ----------
+
+
+def test_tool_path_passes_only_candidate_schemas(monkeypatch):
+    """M6.4：阶段 1 只带候选组 schema（不再全量 26 个），资讯意图含 web_search。"""
+    agent = _make_agent()
+    captured = {}
+
+    def record(messages, tools, max_tokens=None):
+        captured["names"] = [t["function"]["name"] for t in tools]
+        captured["guidance"] = messages[0]["content"]
+        return {"content": "", "tool_calls": None}
+
+    monkeypatch.setattr(agent, "_call_ollama_with_tools", record)
+    monkeypatch.setattr(agent, "_call_ollama", lambda *a, **k: "好的～")
+    agent.chat("帮我搜一下 DeepSeek 最新新闻", session_id="cand-session")
+    assert "web_search" in captured["names"]
+    assert len(captured["names"]) <= 8
+    assert "add_schedule" not in captured["names"]  # 日程工具不在资讯候选里
+    assert "web_search" in captured["guidance"]
+
+
+def test_web_intent_deterministic_fallback(monkeypatch):
+    """M6.4：工具路径未用工具（或关闭）时，『帮我搜一下 X 新闻』确定性执行 web_search，
+    回复基于真实搜索结果（不编造）。"""
+    object.__setattr__(CONFIG, "tool_calling_enabled", False)  # 强制走确定性兜底分支（本模块默认开启）
+    agent = _make_agent()
+    calls = []
+
+    def fake_search(q, timeout=10):
+        calls.append(q)
+        return "1. DeepSeek 发布新版本\n   链接：https://example.com/ds\n   摘要：摘要"
+
+    monkeypatch.setattr("app.tools.web_search.search_text", fake_search)
+    monkeypatch.setattr(agent, "_call_ollama", lambda *a, **k: "（搜索兜底回复）")
+    # 工具路径关闭 → 直接走关键词路由链的联网搜索兜底分支
+    reply, _ = agent.chat("帮我搜一下 DeepSeek 最新新闻")
+    assert reply == "（搜索兜底回复）"  # 注入的是真实搜索结果，由 mock LLM 人设化
+    assert calls == ["DeepSeek 最新新闻"]  # 搜索关键词正确提取且真实执行了搜索
+
+
+def test_obsidian_intent_deterministic_fallback(monkeypatch):
+    """M6.4：工具路径未用工具时，『列出知识库…』确定性调用 obsidian_vault_list（保底真实）。"""
+    object.__setattr__(CONFIG, "tool_calling_enabled", False)  # 强制走确定性兜底分支
+    from app.plugins.registry import registry as global_registry
+
+    global_registry.register(
+        "obsidian_vault_list",
+        {"type": "function", "function": {"name": "obsidian_vault_list", "description": "列目录",
+                                          "parameters": {"type": "object", "properties": {}}}},
+        lambda args: "['00 · 收件箱与想法/', '30 · 项目/', 'AGENTS.md']",
+    )
+    try:
+        agent = _make_agent()
+        monkeypatch.setattr(agent, "_call_ollama", lambda *a, **k: "（知识库兜底回复）")
+        reply, _ = agent.chat("列出知识库里 30 项目的文档")
+        assert reply == "（知识库兜底回复）"
+    finally:
+        global_registry.unregister("obsidian_vault_list")
