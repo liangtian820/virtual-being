@@ -214,8 +214,8 @@ def meta(rerun=None):
         "temperature": TEMPERATURE,
         "method": "进程内 PersonaAgent.chat（全链路：人设注入+会话记忆+长期记忆注入+意图路由能力Agent）+ Ollama 本地推理；"
                   "记忆库为评测专用独立 SQLite（不污染 data/memory.db）",
-        "testset": "consistency_testset.md v1.1（WO-20260816-11 人设修复同步）",
-        "fix_commit": "bed01e2",
+        "testset": os.environ.get("EVAL_TESTSET", "consistency_testset.md v1.2（WO-20260816-13 代码层修复同步）"),
+        "fix_commit": os.environ.get("EVAL_FIX_COMMIT", "2e97963"),
     }
     if rerun:
         m["rerun_cases"] = rerun
