@@ -461,16 +461,22 @@ def test_plain_add_has_no_repeat(tmp_path) -> None:
 # ---------------------------------------------------------------- M2.2 能力 Agent 封装
 
 def test_schedule_agent_weekday_delete_mark_done(tmp_path) -> None:
-    """ScheduleAgent 新接口全链路：parse_weekday → add → mark_done → delete。"""
+    """ScheduleAgent 新接口全链路：parse_weekday → add → mark_done → delete。
+
+    M6.9 稳定性修复：today()/tomorrow() 使用真实系统日期，原固定 now=2026-08-16 在
+    系统日期跨天后（2026-08-17 起）不再与落库日期匹配 → 改为基于运行时日期构造 now，
+    add 落真实『今天』，today() 可命中，测试与系统日期解耦。
+    """
     agent = ScheduleAgent(db_path=str(tmp_path / "agent4.db"))
+    now_d = datetime.now()
     assert agent.parse_weekday("周三", now=datetime(2026, 8, 21, 9, 0)) == "2026-08-26"
-    r = agent.add("今天上午 9 点喝水", now=datetime(2026, 8, 16, 8, 0))
+    r = agent.add("今天上午 9 点喝水", now=now_d.replace(hour=8, minute=0))
     assert r["error"] is None
-    done = agent.mark_done("今天喝水的提醒完成了", now=datetime(2026, 8, 16, 10, 0))
+    done = agent.mark_done("今天喝水的提醒完成了", now=now_d.replace(hour=10, minute=0))
     assert done["error"] is None and done["updated"] == 1
     assert agent.today()["entries"][0]["done"] is True
-    agent.add("明天下午 3 点开会", now=datetime(2026, 8, 16, 8, 0))
-    d = agent.delete("删掉明天下午的提醒", now=datetime(2026, 8, 16, 8, 0))
+    agent.add("明天下午 3 点开会", now=now_d.replace(hour=8, minute=0))
+    d = agent.delete("删掉明天下午的提醒", now=now_d.replace(hour=8, minute=0))
     assert d["error"] is None and d["deleted"] == 1
     assert agent.tomorrow()["count"] == 0
 

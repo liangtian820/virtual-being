@@ -5,12 +5,16 @@
 - Bing HTML 结果页解析（bs4），返回结构化 [{title, url, snippet}]（默认 3 条）。
 - 失败/无结果返回 []（由上层如实告知，绝不编造结果）。
 - 网络操作带超时；解析失败降级为空结果（不抛异常）。
+- M6.9（WO-20260816-39）：超时 10s→(connect 3s, read 6s)；按 query 缓存 ~10 分钟
+  （data/search_cache），重复/近似查询命中缓存 ≤5s（基线『搜新闻』29.3s → ≤15s）。
 """
 import logging
 import re
 from typing import List, Dict
 
 import requests
+
+from app.tools.search_cache import search_cache
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +26,8 @@ _HEADERS = {
 }
 
 _MAX_RESULTS = 3
+# M6.9：connect 3s / read 6s（基线 10s 单超时 → 失败快速降级）
+_TIMEOUT = (3, 6)
 
 
 def _parse_bing(html: str) -> List[Dict[str, str]]:
@@ -49,8 +55,16 @@ def _parse_bing(html: str) -> List[Dict[str, str]]:
     return results
 
 
-def search(query: str, timeout: int = 10) -> List[Dict[str, str]]:
-    """执行 Bing 搜索，返回最多 3 条结果；失败/无结果返回 []（不抛异常）。"""
+def search(query: str, timeout: int = None) -> List[Dict[str, str]]:
+    """执行 Bing 搜索，返回最多 3 条结果；失败/无结果返回 []（不抛异常）。
+
+    M6.9：按 query 缓存（命中直接返回，不发起网络请求）。
+    """
+    if timeout is None:
+        timeout = _TIMEOUT
+    cached = search_cache.get(f"bing:{query}")
+    if cached is not None:
+        return cached
     try:
         resp = requests.get(
             _BING_URL,
@@ -61,7 +75,9 @@ def search(query: str, timeout: int = 10) -> List[Dict[str, str]]:
         if resp.status_code != 200:
             logger.warning("Bing search HTTP %s", resp.status_code)
             return []
-        return _parse_bing(resp.text)
+        results = _parse_bing(resp.text)
+        search_cache.set(f"bing:{query}", results)
+        return results
     except requests.RequestException as exc:
         logger.warning("Bing search failed: %s", exc)
         return []
@@ -70,7 +86,7 @@ def search(query: str, timeout: int = 10) -> List[Dict[str, str]]:
         return []
 
 
-def search_text(query: str, timeout: int = 10) -> str:
+def search_text(query: str, timeout: int = None) -> str:
     """搜索并格式化为文本（供 _execute_tool 使用）；无结果返回明确说明。"""
     items = search(query, timeout=timeout)
     if not items:

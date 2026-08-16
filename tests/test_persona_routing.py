@@ -196,9 +196,21 @@ def test_memory_list_route_injects_memories(monkeypatch, tmp_path) -> None:
 
 
 def test_memory_qa_route_guides_from_memories(monkeypatch, tmp_path) -> None:
-    """『你记得我喜欢什么吗』→ 记忆融合检索注入 + 回忆引导指令。"""
+    """『你记得我喜欢什么吗』→ 记忆融合检索注入 + 回忆引导指令（有相关记忆时正常走，不短路）。
+
+    M6.9（WO-20260816-40）：记忆问答短路判定基于"相关检索 fused_memories"（M6.8 曾用
+    recent 兜底，无关 topic 会让 7B 编造『你喜欢猫』）。本测试用无 embedder 的记忆库
+    （关键词检索退化，『我喜欢什么吗』检索不到『用户喜欢猫』）→ monkeypatch retrieve_fused
+    模拟语义命中，验证有相关记忆时不短路、注入回忆引导。
+    """
     agent, store, captured = _capture(monkeypatch, tmp_path)
     store.add("fact", "用户喜欢猫，家里养了一只橘猫", source_session="s1")
+
+    def fused_hit(query, limit=5, days=90, **kwargs):
+        return [{"id": "1", "kind": "fact", "content": "用户喜欢猫，家里养了一只橘猫",
+                 "source": "s", "created_at": "2026-08-16 10:00:00", "score": 1.0}]
+
+    monkeypatch.setattr(agent._memory_long, "retrieve_fused", fused_hit)
     try:
         agent.chat("你记得我喜欢什么吗", session_id="mem-qa")
     finally:

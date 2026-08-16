@@ -114,6 +114,11 @@ class Config:
     )
     # 语义检索时对无向量旧数据 lazy 补向量（1=开，避免全量离线迁移；0=关）
     memory_auto_backfill: bool = field(default_factory=lambda: os.getenv("MEMORY_AUTO_BACKFILL", "1") != "0")
+    # M6.9（WO-20260816-39）：搜索结果缓存 TTL（秒，默认 600=10 分钟；0=关闭缓存）。
+    # web_search（Bing）/ Wikipedia 按 query 缓存，重复/近似查询命中缓存 ≤5s。
+    search_cache_ttl: int = field(
+        default_factory=lambda: int(os.getenv("SEARCH_CACHE_TTL", "600"))
+    )
 
 
 CONFIG = Config()

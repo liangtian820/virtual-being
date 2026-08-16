@@ -360,27 +360,45 @@ def test_tool_no_call_obsidian_fallback_runs(monkeypatch):
 
 
 def test_tool_used_but_stage2_fails_no_double_execute(monkeypatch):
-    """M6.2：工具已执行（如已添加日程）但阶段 2 人设回复异常 → 用安全兜底文案，
-    绝不回退关键词路由重复执行（scheduler.add 只调用一次）。"""
-    agent = _make_agent()
-    script = iter([
-        {"content": "", "tool_calls": [
-            {"function": {"name": "add_schedule", "arguments": {"text": "明天下午3点提醒我喝水"}}}]},
-        {"content": "", "tool_calls": None},
-    ])
-    monkeypatch.setattr(agent, "_call_ollama_with_tools", lambda *a, **k: next(script))
+    """M6.2：工具已执行（如已列出知识库）但阶段 2 人设回复异常 → 用安全兜底文案，
+    绝不回退关键词路由重复执行（obsidian_vault_list 只执行一次）。
 
-    def boom(*a, **k):
-        raise RuntimeError("阶段2 Ollama 挂了")
+    M6.9（WO-20260816-40）：日程/记忆/计算走确定性路由不进 LLM 工具路径，
+    本用例改用保留工具路径的 obsidian 意图验证防重复执行语义。"""
+    from app.plugins.registry import registry as global_registry
 
-    monkeypatch.setattr(agent, "_call_ollama", boom)
-    reply, _ = agent.chat("明天下午3点提醒我喝水")
-    assert reply == agent._TOOL_DONE_FALLBACK
-    assert agent._scheduler.added == ["明天下午3点提醒我喝水"]  # 仅执行一次
+    vault_calls = []
+    global_registry.register(
+        "obsidian_vault_list",
+        {"type": "function", "function": {"name": "obsidian_vault_list", "description": "列目录",
+                                          "parameters": {"type": "object", "properties": {}}}},
+        lambda args: vault_calls.append(1) or '{"files": ["AI虚拟人物/"]}',
+    )
+    try:
+        agent = _make_agent()
+        script = iter([
+            {"content": "", "tool_calls": [
+                {"function": {"name": "obsidian_vault_list", "arguments": {"path": "30 · 项目"}}}]},
+            {"content": "", "tool_calls": None},
+        ])
+        monkeypatch.setattr(agent, "_call_ollama_with_tools", lambda *a, **k: next(script))
+
+        def boom(*a, **k):
+            raise RuntimeError("阶段2 Ollama 挂了")
+
+        monkeypatch.setattr(agent, "_call_ollama", boom)
+        reply, _ = agent.chat("列出知识库里 30 项目的文档")
+        assert reply == agent._TOOL_DONE_FALLBACK
+        assert len(vault_calls) == 1  # 工具仅执行一次，不回退路由重复执行
+    finally:
+        global_registry.unregister("obsidian_vault_list")
 
 
 def test_tool_decision_injects_recent_history(monkeypatch):
-    """M6.2：阶段 1 工具决策注入最近会话历史（支持多轮指代）。"""
+    """M6.2：阶段 1 工具决策注入最近会话历史（支持多轮指代）。
+
+    M6.9（WO-20260816-40）：日程意图已走确定性路由不进 LLM 工具路径，
+    本用例改用保留工具路径的知识意图验证历史注入。"""
     agent = _make_agent()
     captured = {}
 
@@ -391,15 +409,15 @@ def test_tool_decision_injects_recent_history(monkeypatch):
     monkeypatch.setattr(agent, "_call_ollama_with_tools", record)
     monkeypatch.setattr(agent, "_call_ollama", lambda *a, **k: "好的～")
     # 第一轮：工具未用（record 返回无 tool_calls）→ 回退关键词路由，留下会话历史
-    agent.chat("明天下午3点提醒我喝水", session_id="hist-session")
+    agent.chat("什么是 LangGraph？", session_id="hist-session")
     captured.pop("stage1", None)
-    # 第二轮（同会话新日程请求）：验证阶段 1 注入历史（含上一轮用户输入）
-    agent.chat("后天下午4点提醒我吃药", session_id="hist-session")
+    # 第二轮（同会话新知识请求）：验证阶段 1 注入历史（含上一轮用户输入）
+    agent.chat("什么是 RAG？", session_id="hist-session")
     stage1 = captured.get("stage1", [])
     roles = [m["role"] for m in stage1]
     assert "user" in roles
     contents = " ".join(m.get("content", "") for m in stage1)
-    assert "提醒我喝水" in contents  # 上一轮用户输入出现在阶段 1 历史中
+    assert "LangGraph" in contents  # 上一轮用户输入出现在阶段 1 历史中
 
 
 def test_guidance_contains_no_fake_completion_rule():

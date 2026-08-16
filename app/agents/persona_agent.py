@@ -357,9 +357,11 @@ class PersonaAgent:
         # M3/M3.5/M5.1 长期记忆注入：检索与该输入相关的过往记忆（新会话也能"记得用户"）。
         # M5.1：由关键词检索升级为融合检索（语义 + 关键词，Ollama all-minilm；
         # 无 embedder/服务不可用时自动退化为关键词，行为不变）
-        memories = self._memory_long.retrieve_fused(user_input)
-        if not memories:
-            memories = self._memory_long.recent(limit=2)
+        # M6.9（WO-20260816-40）：保留融合检索原始结果——记忆问答（『你记得我…』）短路
+        # 判定基于"相关检索"而非 recent 兜底（无关 topic 兜底注入会让 7B 编造
+        # 『你喜欢猫』，QA r6 实测；M6.8 短路曾被 recent 兜底绕过）。
+        fused_memories = self._memory_long.retrieve_fused(user_input)
+        memories = fused_memories or self._memory_long.recent(limit=2)
         if memories:
             lines = "\n".join(f"- [{m['kind']}] {m['content']}" for m in memories)
             messages.append({
@@ -394,8 +396,11 @@ class PersonaAgent:
         # 空记忆库）→ 代码层短路直接返回固定如实话术，不经 LLM——7B 空记忆编造不可靠
         # （QA 实测：空库问『你记得我喜欢什么吗』编造『你喜欢喝咖啡，还喜欢看科幻电影』，
         # 用户从未说过；与空结果模式同思路：代码层保证零编造）。有记忆时正常走（自然引用）。
-        if (is_memory_query(user_input) and not memories
-                and not is_crisis_query(user_input)):
+        # M6.9（WO-20260816-40）：短路判定用"相关检索 fused_memories"而非 recent 兜底——
+        # 无关 topic 兜底注入（如脚本环境前面落库的『明天下午3点提醒我喝水』）会让 7B
+        # 仍编造『你喜欢猫』；无相关记忆即如实『没有那次的记录』。
+        if (is_memory_query(user_input) and not is_memory_list_query(user_input)
+                and not fused_memories and not is_crisis_query(user_input)):
             for kind, content in extract_memories(user_input):
                 self._memory_long.add(kind, content, source_session=sid)
             self._memory.append(sid, "assistant", _MEMORY_EMPTY_FALLBACK)
@@ -407,8 +412,11 @@ class PersonaAgent:
         # 两阶段：LLM 工具决策 → 人设包装回复；未用工具/失败 → 落到下方关键词路由链。
         # M6.2：注入最近会话历史（多轮指代）；工具已执行后阶段 2 失败 → 安全兜底文案，
         # 绝不回退关键词路由（避免重复执行工具）。
+        # M6.9（WO-20260816-40 确定性优先）：强关键词意图（日程/记忆/计算）不进 LLM 工具
+        # 决策——选型确定，直接走 _route_by_keywords 确定性执行（基线『提醒我喝水』11.1s → ≤6s）；
+        # 模糊意图（知识/搜索/知识库）保留两阶段 LLM 决策（选工具/精确参数）。
         if (not is_crisis_query(user_input) and self._tools_enabled
-                and self._needs_keyword_route(user_input)):
+                and self._needs_llm_tool_decision(user_input)):
             history = self._memory.load(sid)[:-1][-6:]  # 最近 6 轮（不含当前输入）
             tool_reply, tool_used, tool_failed = self._try_tool_calling(
                 user_input, messages, history=history, max_tokens=max_tokens)
@@ -937,7 +945,9 @@ class PersonaAgent:
             stage1.append({"role": "user", "content": user_input})
             used_any = False
             for _ in range(3):
-                resp = self._call_ollama_with_tools(stage1, tools, max_tokens=max_tokens)
+                # M6.9（WO-20260816-39）：决策轮只输出 tool_calls/简短判断，num_predict 收紧
+                # ≤40 显著降低决策生成耗时（基线『搜新闻』29.3s → ≤15s 目标）
+                resp = self._call_ollama_with_tools(stage1, tools, max_tokens=40)
                 tool_calls = resp.get("tool_calls")
                 if not tool_calls:
                     if not used_any:
@@ -1018,7 +1028,10 @@ class PersonaAgent:
                     {"role": "user", "content": user_input},
                 ]
             try:
-                reply = self._call_ollama(msgs2, max_tokens)
+                # M6.9（WO-20260816-39）：阶段 2 人设回复默认 num_predict 上限 150
+                # （文本链路不传 max_tokens 时，防止 7B 长回复拖慢全链路；
+                # 零编造由代码层兜底保证，不依赖生成长度）
+                reply = self._call_ollama(msgs2, max_tokens if max_tokens else 150)
             except Exception:
                 # M6.2：工具已执行，阶段 2 回复失败——返回 (None, True, True)，
                 # 调用方用安全兜底文案，绝不回退关键词路由（避免重复执行）。
@@ -1043,7 +1056,7 @@ class PersonaAgent:
                         {"role": "assistant", "content": reply},
                         {"role": "system", "content": rewrite_msg},
                     ]
-                    reply2 = self._call_ollama(msgs_rewrite, max_tokens)
+                    reply2 = self._call_ollama(msgs_rewrite, max_tokens if max_tokens else 150)
                 except Exception:
                     reply2 = ""
                 if not reply2 or self._stage2_has_fabrication(reply2, true_items):
@@ -1236,6 +1249,16 @@ class PersonaAgent:
             or is_web_search_query(text)     # M6.4：联网搜索（『帮我搜一下 X 新闻』）
             or is_obsidian_query(text)       # M6.4：知识库/笔记（Obsidian MCP）
         )
+
+    @staticmethod
+    def _needs_llm_tool_decision(text: str) -> bool:
+        """是否需要两阶段 LLM 工具决策（M6.9，WO-20260816-40 确定性优先）：
+
+        强关键词意图（日程/记忆/计算/规划）选型确定——直接走 _route_by_keywords 确定性执行，
+        跳过阶段 1 LLM 决策（基线『提醒我喝水』11.1s → ≤6s 目标，正确性不降）；
+        模糊意图（知识/搜索/知识库）保留 LLM 决策（需选工具，或精确参数如 obsidian path）。
+        """
+        return (is_knowledge_query(text) or is_web_search_query(text) or is_obsidian_query(text))
 
     @property
     def system_prompt(self) -> str:
