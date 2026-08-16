@@ -18,6 +18,7 @@ import requests
 from app.agents.calculator_agent import CalculatorAgent
 from app.agents.knowledge_agent import KnowledgeAgent
 from app.config import CONFIG
+from app.memory.long_term_memory import LongTermMemory
 from app.memory.session_memory import SessionMemory
 from app.persona.prompts import build_system_prompt
 
@@ -35,6 +36,24 @@ _CALC_FORMULA_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# M3：用户事实提取规则（名字/喜好/身份/地点等）
+_FACT_PATTERN = re.compile(
+    r"(?:我喜欢|我爱|我不喜欢|我讨厌|我的名字是|我叫|我的生日|我是|我住在|我家在|我在|我今年|我喜欢吃).{0,30}",
+    re.IGNORECASE,
+)
+
+
+def extract_memories(user_input: str) -> List[tuple]:
+    """从用户输入提取长期记忆：返回 [(kind, content), ...]（fact / topic）。"""
+    hits: List[tuple] = []
+    for m in _FACT_PATTERN.findall(user_input):
+        content = m.strip().strip("，。！？")
+        if len(content) >= 2:
+            hits.append(("fact", content))
+    if len(user_input) >= 10 and "？" not in user_input:
+        hits.append(("topic", user_input[:40]))
+    return hits
+
 
 def is_knowledge_query(text: str) -> bool:
     """判断输入是否为知识查询意图。"""
@@ -50,8 +69,10 @@ class PersonaAgent:
     """人格 Agent：人设注入 + 会话记忆 + 意图路由 + Ollama 推理。"""
 
     def __init__(self, memory: Optional[SessionMemory] = None, model: Optional[str] = None,
-                 base_url: Optional[str] = None, temperature: Optional[float] = None) -> None:
+                 base_url: Optional[str] = None, temperature: Optional[float] = None,
+                 long_memory: Optional[LongTermMemory] = None) -> None:
         self._memory = memory or SessionMemory(max_turns=CONFIG.max_history_turns)
+        self._memory_long = long_memory or LongTermMemory()
         self._model = model or CONFIG.ollama_model
         self._base_url = base_url or CONFIG.ollama_base_url
         self._temperature = temperature if temperature is not None else CONFIG.temperature
@@ -64,6 +85,17 @@ class PersonaAgent:
         sid = session_id or uuid.uuid4().hex
         self._memory.append(sid, "user", user_input)
         messages = [{"role": "system", "content": self._system_prompt}]
+        # M3 长期记忆注入：检索与该输入相关的过往记忆（新会话也能"记得用户"）
+        memories = self._memory_long.retrieve(user_input)
+        if not memories:
+            memories = self._memory_long.recent(limit=2)
+        if memories:
+            lines = "\n".join(f"- [{m['kind']}] {m['content']}" for m in memories)
+            messages.append({
+                "role": "system",
+                "content": "以下是用户过往对话中的长期记忆（供你自然地体现『记得用户』，"
+                           "不要生硬复述，除非话题相关）：\n" + lines,
+            })
         # M2 意图路由：知识查询 → 能力 Agent 取结果注入（人设包装仍由本 Agent）
         if is_knowledge_query(user_input):
             result = self._knowledge.query(user_input)
@@ -94,6 +126,9 @@ class PersonaAgent:
         messages.extend(self._memory.load(sid))
         reply = self._call_ollama(messages)
         self._memory.append(sid, "assistant", reply)
+        # M3 长期记忆提取：对话后记录用户事实与话题（供未来会话使用）
+        for kind, content in extract_memories(user_input):
+            self._memory_long.add(kind, content, source_session=sid)
         return reply, sid
 
     def _call_ollama(self, messages: List[dict]) -> str:
