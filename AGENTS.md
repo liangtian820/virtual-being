@@ -20,6 +20,7 @@
 - `app/voice/` — 语音模块（M4：asr.py 本地识别 / tts.py edge-tts / pipeline.py 语音链路）
 - `app/main.py` — FastAPI 服务入口（M5 起挂载 `web/` 静态目录 + `GET /` 聊天页）
 - `web/` — M5 形象：Web 聊天界面（index.html + css/ + js/，程序化原创立绘与表情状态）
+- `docs/` — M6 打磨展示：演示脚本（`docs/演示脚本.md`）、角色一致性评测等
 - `scripts/run_demo.py` — CLI 文本对话演示
 - `scripts/run_voice_demo.py` — CLI 语音对话演示（M4）
 - `tests/` — pytest 测试（离线，mock 外部服务）
@@ -51,7 +52,7 @@
 
 - 产品定义：`30 · 项目/AI虚拟人物/产品定义.md`（知识库）
 - 里程碑：M1 文本灵魂 → M2 能力扩展 → M3 专属记忆 → M4 语音 → M5 形象 → M6 打磨展示
-- 当前阶段：M5（形象：Web 聊天界面 + 程序化原创立绘 + 表情状态 + 语音控件）
+- 当前阶段：M6（打磨展示：README 架构图 / 演示脚本 / GitHub 仓库准备 / 角色一致性评测）
 
 ## 人设速览（详见 app/persona/character_card.py）
 

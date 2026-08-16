@@ -2,13 +2,28 @@
 
 一个**能沟通的专属 Agent**：温柔治愈的二次元角色，通过连接多个 Agent 构建，既能陪伴聊天、也能当助手干活。
 
-## 当前状态：M5（形象）
+> **GitHub 仓库（占位）**：`https://github.com/<你的用户名>/virtual-being`
+> 当前为本地 git 仓库，尚未 push。待项目所有者确认后另行创建并推送，README 中的链接与徽章届时再补充。
+
+## 当前状态：M6（打磨与展示）
 
 - ✅ M1 文本灵魂：Ollama 本地推理（qwen2.5:7b）+ 人格 Agent + 会话内记忆
 - ✅ M2 能力扩展：知识查询 + 计算能力 Agent（意图路由、人设包装）
 - ✅ M3 专属记忆：SQLite 跨会话长期记忆（fact + topic）
 - ✅ M4 语音：ASR（Whisper 本地识别，中文）+ TTS（edge-tts 中文女声）+ 语音对话链路（说→听→回→播）
 - ✅ M5 形象：Web 聊天界面（程序化原创立绘 + 表情状态 + 语音控件）
+- 🚧 M6 打磨展示：README 架构图与演示脚本（进行中）、角色一致性评测（`docs/consistency_testset.md`）、GitHub 仓库准备
+
+## 功能清单
+
+| 能力 | 里程碑 | 说明 | 入口 |
+| --- | --- | --- | --- |
+| 文本对话（人格） | M1 | 温柔治愈二次元人设，Ollama qwen2.5:7b 本地推理 | `POST /chat`、`scripts/run_demo.py` |
+| 能力扩展 | M2 | 知识查询 + 计算能力 Agent（意图路由、人设包装） | `app/agents/knowledge_agent.py`、`calculator_agent.py` |
+| 专属记忆 | M3 | SQLite 跨会话长期记忆（fact/topic 抽取、去重、线程安全） | `app/memory/long_term_memory.py` |
+| 语音对话 | M4 | 说→听→回→播：Whisper ASR（本地识别）+ edge-tts TTS（中文女声） | `POST /chat/voice`、`scripts/run_voice_demo.py` |
+| 形象（Web 界面） | M5 | 程序化原创立绘 + 4 表情状态 + 按住说话语音控件 | `GET /`、`web/` |
+| 延迟优化 | M4.1/M4.2 | Ollama keep_alive、回复截断、TTS LRU 缓存、ASR 启动预加载 | 证据 `data/m4_voice/evidence_m4{1,2}.json` |
 
 ## 快速开始
 
@@ -31,12 +46,17 @@ uvicorn app.main:app --port 8000         # Web 服务
 - **语音对话**：按住 🎙 说话 → 浏览器录音（MediaRecorder）→ `POST /chat/voice` → 自动播放回复音频
 - 页面轻量：原生 HTML/CSS/JS 单页，无框架依赖，支持减弱动画（`prefers-reduced-motion`）
 
-### 语音说明（M4）
+### 语音说明（M4，含 M4.2 默认调优）
 
-- **ASR**：faster-whisper 本地识别，默认 `small` 模型（RTX 3060 6GB 可跑），首次使用需联网下载一次模型；
-  网络受限时设置 `HF_ENDPOINT=https://hf-mirror.com` 走镜像。
-- **TTS**：edge-tts 现成音色（微软在线服务，免费），默认中文女声「晓晓」`zh-CN-XiaoxiaoNeural`；合成需联网。
-- **环境变量**：`ASR_MODEL_SIZE`（small/base/medium）、`ASR_DEVICE`（auto/cuda/cpu）、`ASR_LANGUAGE`（zh/auto）、
+- **ASR**：faster-whisper 本地识别，默认 `base` 模型 + CPU(int8)（`ASR_MODEL_SIZE`/`ASR_DEVICE`/`ASR_COMPUTE_TYPE`），
+  链上稳定约 0.9s 且不占用 Ollama 显存。
+- **ASR 模型本地路径**：默认从项目 `data/models` 加载（`ASR_MODEL_DIR` 可指定；支持 HF 缓存布局
+  `models--Systran--faster-whisper-{size}` 或扁平目录）。**首次使用无本地模型时**需联网下载一次：
+  网络直连不稳时设置 `HF_ENDPOINT=https://hf-mirror.com` 走国内镜像。
+- **TTS**：edge-tts 现成音色（微软在线服务，免费），默认中文女声「晓晓」`zh-CN-XiaoxiaoNeural`；合成需联网，
+  同文本命中 LRU 缓存（`TTS_CACHE_DIR`，默认 `data/tts_cache`）时仅约 8ms。
+- **环境变量**：`ASR_MODEL_SIZE`（base/small/medium）、`ASR_DEVICE`（auto/cuda/cpu）、`ASR_LANGUAGE`（zh/auto）、
+  `ASR_PRELOAD`（1/0，默认启动预加载）、`OLLAMA_KEEP_ALIVE`（默认 `60m` 长驻）、`VOICE_MAX_REPLY_CHARS`（默认 `60`）、
   `TTS_VOICE`、`TTS_RATE`、`VOICE_REPLY_DIR` 等，见 `app/config.py`。
 - **隐私**：不保存用户语音原始数据（API 上传音频处理完即删）；不使用任何未授权音色（禁止声音克隆）。
 
@@ -57,6 +77,34 @@ curl -F "file=@user.mp3" http://127.0.0.1:8000/chat/voice
 ```
 
 ## 架构
+
+### 全链路总览（M1-M5）
+
+```
+┌─────────────────────────────── 用户层 ───────────────────────────────┐
+│  Web 聊天界面（M5）                       CLI 演示                   │
+│  立绘 + 4 表情状态机    按住说话(录音)     scripts/run_demo.py       │
+└───────────────┬───────────────────────────────┬──────────────────────┘
+                │ POST /chat (JSON 文本)        │ POST /chat/voice (音频)
+                ▼                               ▼
+┌────────────────────────── 服务层（FastAPI, app/main.py）──────────────────────┐
+│  /chat         会话记忆(M1) + 长期记忆检索(M3) → 人格对话                       │
+│  /chat/voice   ASR(M4) → 人格对话 → 回复截断(M4.1) → TTS(M4)                   │
+│  /voice/replies/{filename} 回复音频下载（防路径穿越）                           │
+│  /static、/     Web 静态资源与聊天页（M5）                                     │
+└───────────────┬───────────────────────────────▲───────────────────────────────┘
+                │ 注入工具结果 / 记忆            │ 回复音频
+                ▼                               │
+┌────────────────────────────── Agent 层 ───────────────────────────────────────┐
+│  人格 Agent（角色卡 + 提示词，温柔治愈人设）                                    │
+│    ├─ 意图路由 → 知识查询 Agent（M2）/ 计算能力 Agent（M2）                     │
+│    └─ 长期记忆：fact/topic 抽取、去重、SQLite 持久化（M3）                      │
+└──────────────────────────────┬─────────────────────────────────────────────────┘
+                               ▼
+              Ollama qwen2.5:7b（本地 LLM，keep_alive 长驻）
+```
+
+分链路细节见下。
 
 ### 文本链路（M1-M3）
 
@@ -163,12 +211,14 @@ UI（web/）语音处理中分阶段提示：识别中 → TA 正在思考 → �
 ## 测试
 
 ```powershell
-python -m pytest -q        # 全部离线：mock ASR/TTS 与外部服务
+python -m pytest -q        # 全部离线：mock ASR/TTS 与外部服务（当前 90 项）
 ```
 
-M5 相关：`tests/test_web_ui.py`（首页路由 / 静态挂载 / 既有 API 回归护栏）。
+- Web 界面（M5）：`tests/test_web_ui.py`（首页路由 / 静态挂载 / 既有 API 回归护栏）。
+- 演示流程：见 `docs/演示脚本.md`（可照做的 6 步演示 + 预期效果 + 截图指引）。
 
-## 相关文档（知识库）
+## 相关文档
 
-- 产品定义 / 技术选型 / 里程碑计划：`30 · 项目/AI虚拟人物/`
-- 领域知识：`20 · 工作领域/`
+- 演示脚本：`docs/演示脚本.md`；角色一致性评测：`docs/consistency_testset.md`（M6）
+- 产品定义 / 技术选型 / 里程碑计划：`30 · 项目/AI虚拟人物/`（知识库）
+- 领域知识：`20 · 工作领域/`（知识库）
