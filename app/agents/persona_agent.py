@@ -55,14 +55,49 @@ CRISIS_KEYWORDS = (
 )
 
 
+# P3-4（WO-20260816-17）：topic 提取噪音治理——请求/计算/提问/命令类输入不落 topic。
+# 原规则"长度≥10 且无？"会把"帮我查一下…""300 的 20% 是多少"等请求/计算/提问误记为话题
+# （QA 四轮评测：T01-T24 空记忆库落 14 条 topic 噪音）。现叠加三重排除，只记用户
+# 事实/偏好/关系类陈述：① 请求/命令前缀；② 提问句式（疑问词/A不A/句尾语气词/问号）；
+# ③ 计算与知识意图（复用下方意图检测，运行时解析，顺序无碍）。
+_REQUEST_PREFIX_PATTERN = re.compile(
+    r"^\s*(帮我|帮|请|给我|麻烦|求你|替我|拜托|建议|推荐|教我|教教|帮个忙|"
+    r"打开|关闭|播放|暂停|安装|卸载|下载|上传|启动|停止|连接|断开|保存|发送|切换|重启|清空)",
+    re.IGNORECASE,
+)
+_QUESTION_PATTERN = re.compile(
+    r"(是多少|等于多少|为什么|怎么回事|怎么|如何|哪些|哪个|哪里|什么时候|"
+    r"有没有|会不会|能不能|可不可以|是不是|要不要|好不好|行不行|可以吗|好吗|"
+    r"吗|呢$|吧$|呀$|啊$|？|\?$)",
+    re.IGNORECASE,
+)
+
+
+def _is_topic_worthy(user_input: str) -> bool:
+    """判断输入是否值得记为长期话题：排除请求/命令/提问/计算/知识意图，只留用户陈述。"""
+    if len(user_input) < 10:
+        return False
+    if is_calculator_query(user_input) or is_knowledge_query(user_input):
+        return False
+    if _REQUEST_PREFIX_PATTERN.match(user_input):
+        return False
+    if _QUESTION_PATTERN.search(user_input):
+        return False
+    return True
+
+
 def extract_memories(user_input: str) -> List[tuple]:
-    """从用户输入提取长期记忆：返回 [(kind, content), ...]（fact / topic）。"""
+    """从用户输入提取长期记忆：返回 [(kind, content), ...]（fact / topic）。
+
+    fact 规则锚定用户自称短语（我喜欢/我是/我叫/我住在…），请求/计算类输入天然不命中；
+    topic 规则由 _is_topic_worthy 把关，只记用户真实陈述（P3-4 噪音治理）。
+    """
     hits: List[tuple] = []
     for m in _FACT_PATTERN.findall(user_input):
         content = m.strip().strip("，。！？")
         if len(content) >= 2:
             hits.append(("fact", content))
-    if len(user_input) >= 10 and "？" not in user_input:
+    if _is_topic_worthy(user_input):
         hits.append(("topic", user_input[:40]))
     return hits
 

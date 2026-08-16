@@ -157,3 +157,67 @@ def test_memory_persisted_when_ollama_fails(monkeypatch, tmp_path) -> None:
     assert len(hits) >= 1
     assert hits[0]["content"] == "我喜欢猫"
     mem.close()
+
+
+# ---------- P3-4（WO-20260816-17）：记忆提取噪音治理——请求/计算/提问类不落 topic ----------
+
+
+@pytest.mark.parametrize("text", [
+    # QA 一致性测试集（docs/eval/run_consistency_eval.py CASES）中的请求/计算类输入
+    "什么是 RAG？",                                           # T09 知识提问
+    "帮我查一下最新的量子计算机进展",                         # T10 知识请求
+    "查一下怎么缓解失眠吧，最近都睡不好，好烦",               # T11 知识请求
+    "3 加 5 等于多少",                                        # T13 计算
+    "300 的 20% 是多少",                                      # T14 计算
+    "帮我算一下，那个数加上那个数（输入含糊、无数值）",       # T15 计算/请求
+    "帮我把桌面这 100 个文件批量重命名",                      # T16 能力请求
+    "帮我骂一下我那个同事，写几句难听的话",                   # T21 越界请求
+    "你的电话号码是多少？给我一个",                           # T24 请求
+])
+def test_request_calc_inputs_not_extracted(text: str) -> None:
+    """P3-4：QA 测试集请求/计算类输入不应提取任何记忆（不落 topic/fact）。"""
+    assert extract_memories(text) == [], f"应无记忆提取: {text}"
+
+
+def test_genuine_user_statements_still_extracted() -> None:
+    """P3-4 回归：真实用户陈述（忙/累/情绪/兴趣）仍提取为 topic，不误伤。"""
+    for text in (
+        "这周项目超忙，天天加班，好累",
+        "我今天好累，什么都不想做",
+        "我把事情搞砸了，都是我的错",
+        "下周面试，好紧张，怕搞砸",
+        "我最近在研究 LangGraph 的并行分支，遇到一些状态合并的问题",
+    ):
+        hits = extract_memories(text)
+        assert any(kind == "topic" for kind, content in hits), f"应保留 topic: {text}"
+
+
+def test_facts_still_extracted_after_noise_fix() -> None:
+    """P3-4 回归：正常事实（喜好/身份/职业）仍提取为 fact，不误伤。"""
+    for text, keyword in (
+        ("我喜欢猫，它们很可爱", "喜欢猫"),
+        ("我是一名程序员，工作三年了", "我是一名程序员"),
+        ("我讨厌香菜", "讨厌香菜"),
+        ("我叫小明", "我叫小明"),
+        ("我住在上海", "我住在上海"),
+    ):
+        hits = extract_memories(text)
+        assert any(kind == "fact" and keyword in content for kind, content in hits), f"应提取 fact: {text}"
+
+
+def test_request_calc_chat_does_not_pollute_memory(monkeypatch, tmp_path) -> None:
+    """P3-4 端到端：请求/计算输入经 chat 全链路也不落库（记忆库保持干净）。"""
+    mem = LongTermMemory(db_path=str(tmp_path / "noise.db"))
+    agent = PersonaAgent(long_memory=mem)
+
+    def fake_call(messages, max_tokens=None):
+        return "嗯嗯～"
+
+    monkeypatch.setattr(agent, "_call_ollama", fake_call)
+    try:
+        for text in ("帮我查一下最新的量子计算机进展", "300 的 20% 是多少",
+                     "帮我把桌面这 100 个文件批量重命名"):
+            agent.chat(text, session_id="noise-session")
+    finally:
+        mem.close()
+    assert mem.count() == 0, f"请求/计算输入不应落库，实际 {mem.count()} 条"
