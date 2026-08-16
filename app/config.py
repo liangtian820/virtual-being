@@ -36,6 +36,11 @@ class Config:
     max_history_turns: int = field(default_factory=lambda: int(os.getenv("PERSONA_MAX_HISTORY_TURNS", "10")))
     # M4.1 延迟优化：Ollama keep_alive 长驻（如 "60m"），消除每次对话的模型冷启动
     ollama_keep_alive: str = field(default_factory=lambda: os.getenv("OLLAMA_KEEP_ALIVE", "60m"))
+    # M6.1（WO-20260816-29）：LLM 工具调用（function calling）开关。默认开启；
+    # 通用离线测试套件在 conftest 中关闭（保持 mock LLM 确定性），工具调用专项测试显式开启。
+    tool_calling_enabled: bool = field(
+        default_factory=lambda: os.getenv("TOOL_CALLING_ENABLED", "1") == "1"
+    )
     # M4.3/M4.4：语音链路专用 LLM 模型（默认 llama3.2:3b——用户已决策 <5s 优先；
     # 文本链路不受影响；可设 VOICE_LLM_MODEL 覆盖为 qwen2.5:7b 等）
     voice_llm_model: Optional[str] = field(

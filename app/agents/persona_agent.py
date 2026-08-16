@@ -24,6 +24,7 @@ from app.memory.embeddings import OllamaEmbedder
 from app.memory.long_term_memory import LongTermMemory
 from app.memory.session_memory import SessionMemory
 from app.persona.prompts import build_system_prompt
+from app.tools.tool_specs import get_tool_specs
 
 # 知识查询意图关键词（起步版简单规则；后续可换模型判断）
 _KNOWLEDGE_PATTERN = re.compile(r"(查一下|什么是|是什么|介绍一下|查找|搜索|查询|帮我查|了解)", re.IGNORECASE)
@@ -247,6 +248,8 @@ class PersonaAgent:
         self._calculator = CalculatorAgent()
         self._planner = PlanningAgent()      # M5.1：规划助手（WO-20 交付，复用其接口）
         self._scheduler = ScheduleAgent()    # M5.1：日程备忘（WO-20 交付，复用其接口）
+        # M6.1（WO-20260816-29）：LLM 工具调用开关（默认开；通用测试套件关闭保持确定性）
+        self._tools_enabled = CONFIG.tool_calling_enabled
 
     def chat(self, user_input: str, session_id: Optional[str] = None,
              max_tokens: Optional[int] = None) -> tuple:
@@ -294,6 +297,20 @@ class PersonaAgent:
                            "或者拨打心理援助热线（如 12356 或当地心理援助热线），都会有人认真听 TA 说。"
                            "用平时的温柔口吻，不敷衍、不慌张、不说教。",
             })
+        # M6.1（WO-20260816-29）：工具调用路径（非危机分支）——让 LLM 自主决定是否调用工具。
+        # 返回语义：tool_reply 非 None 且（用了工具 或 无需关键词路由）→ 直接采用；
+        # 其余情况（工具路径失败 / 未用工具但意图命中需确定性操作）→ 落到下方关键词路由链。
+        # M6.1（WO-20260816-29）：工具调用路径（非危机、开启、且命中可服务意图时尝试）。
+        # 两阶段：LLM 工具决策 → 人设包装回复；未用工具/失败 → 落到下方关键词路由链。
+        if (not is_crisis_query(user_input) and self._tools_enabled
+                and self._needs_keyword_route(user_input)):
+            tool_reply, tool_used, tool_failed = self._try_tool_calling(user_input, messages, max_tokens)
+            if tool_used and tool_reply is not None:
+                reply = tool_reply
+                for kind, content in extract_memories(user_input):
+                    self._memory_long.add(kind, content, source_session=sid)
+                self._memory.append(sid, "assistant", reply)
+                return reply, sid
         # M2 意图路由：知识查询 → 能力 Agent 取结果注入（人设包装仍由本 Agent）
         elif is_knowledge_query(user_input):
             result = self._knowledge.query(user_input)
@@ -424,23 +441,24 @@ class PersonaAgent:
                                    + f"[日程已添加]\n日期：{sched['date']} 时间：{sched['time']} 事项：{sched['event']}",
                     })
         # M6 v3（WO-20260816-15，T03/T08）：普通对话路径（非危机/知识/计算/记忆/规划/日程）
-        # 注入长度约束提示
+        # 注入长度约束提示。M6.1：危机分支（工具路径 if 绑定后 else 也会走到）不注入默认提示。
         else:
-            messages.append({
-                "role": "system",
-                "content": "回复尽量简短：日常聊天一两句话就好（60 字内），情绪安抚也尽量控制在 80 字内；"
-                           "说完就停下来，不要继续展开。",
-            })
-            # M6 v2（WO-20260816-13，T16/R3）：能力边界强提示（普通对话路径常驻注入）。
-            # M5.1：日程提醒已能做，从"做不到"清单移除（避免与日程路由自相矛盾）
-            messages.append({
-                "role": "system",
-                "content": "记住你的能力边界：你现在能在对话里帮忙——查资料、算一算、做规划、记日程、"
-                           "陪你聊天、给建议。如果用户要求你操作 TA 的电脑、读写 TA 的文件、"
-                           "控制系统或设备，或做现实世界里的事，就温柔地说『这个我还做不到哦』，"
-                           "说明你只能在对话里帮忙，再转向你能做的小事；"
-                           "绝不答应『我帮你操作/直接搞定』，也绝不假装已经做完了没做过的事。",
-            })
+            if not is_crisis_query(user_input):
+                messages.append({
+                    "role": "system",
+                    "content": "回复尽量简短：日常聊天一两句话就好（60 字内），情绪安抚也尽量控制在 80 字内；"
+                               "说完就停下来，不要继续展开。",
+                })
+                # M6 v2（WO-20260816-13，T16/R3）：能力边界强提示（普通对话路径常驻注入）。
+                # M5.1：日程提醒已能做，从"做不到"清单移除（避免与日程路由自相矛盾）
+                messages.append({
+                    "role": "system",
+                    "content": "记住你的能力边界：你现在能在对话里帮忙——查资料、算一算、做规划、记日程、"
+                               "陪你聊天、给建议。如果用户要求你操作 TA 的电脑、读写 TA 的文件、"
+                               "控制系统或设备，或做现实世界里的事，就温柔地说『这个我还做不到哦』，"
+                               "说明你只能在对话里帮忙，再转向你能做的小事；"
+                               "绝不答应『我帮你操作/直接搞定』，也绝不假装已经做完了没做过的事。",
+                })
         messages.extend(self._memory.load(sid))
         # M3 长期记忆提取（P3-4）：先提取、再落库（finally），即使 Ollama 抛异常，
         # 本次用户事实/话题也不丢失。
@@ -483,6 +501,174 @@ class PersonaAgent:
             raise RuntimeError(f"Ollama 调用失败（请确认 Ollama 已启动、模型 {self._model} 已拉取）: {exc}") from exc
         data = resp.json()
         return data.get("message", {}).get("content", "").strip()
+
+    # ---------- M6.1（WO-20260816-29）：LLM 工具调用（function calling） ----------
+
+    def _call_ollama_with_tools(self, messages: List[dict], tools: list,
+                                max_tokens: Optional[int] = None) -> dict:
+        """调用 Ollama /api/chat 并携带 tools 参数，返回完整 message（含 content/tool_calls）。
+
+        :return: {"content": str, "tool_calls": list|None}；失败抛 RuntimeError（由上层回退）
+        """
+        url = f"{self._base_url.rstrip('/')}/api/chat"
+        options: dict = {"temperature": self._temperature}
+        if max_tokens is not None and max_tokens > 0:
+            options["num_predict"] = max_tokens
+        payload = {
+            "model": self._model,
+            "messages": messages,
+            "stream": False,
+            "keep_alive": CONFIG.ollama_keep_alive,
+            "tools": tools,
+            "options": options,
+        }
+        try:
+            resp = requests.post(url, json=payload, timeout=120)
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            raise RuntimeError(f"Ollama 工具调用失败: {exc}") from exc
+        msg = resp.json().get("message", {})
+        return {
+            "content": (msg.get("content") or "").strip(),
+            "tool_calls": msg.get("tool_calls"),
+        }
+
+    def _execute_tool(self, name: str, arguments: dict) -> str:
+        """执行工具（对既有能力 Agent / 记忆接口的薄封装），返回结果字符串或错误说明。
+
+        只调用既有接口，不重复实现业务；任何失败返回错误说明（不抛异常，交由 LLM 处理）。
+        """
+        try:
+            if name == "get_schedule":
+                date = (arguments.get("date") or "today").lower()
+                entries = self._scheduler.today() if date == "today" else self._scheduler.tomorrow()
+                if entries.get("count"):
+                    return "\n".join(f"- {e['time']} {e['event']}" for e in entries["entries"])
+                return "（今天没有日程安排）" if date == "today" else "（明天没有日程安排）"
+            if name == "add_schedule":
+                text = (arguments.get("text") or "").strip()
+                if not text:
+                    return "错误：缺少提醒内容描述"
+                sched = self._scheduler.add(text)
+                if sched.get("error"):
+                    return f"错误：{sched['error']}"
+                return f"已记录：日期 {sched.get('date')} 时间 {sched.get('time')} 事项 {sched.get('event')}"
+            if name == "query_memory":
+                question = (arguments.get("question") or "").strip()
+                items = self._memory_long.retrieve_fused(question, limit=3)
+                if not items:
+                    return "（记忆里没有相关内容）"
+                return "\n".join(f"- [{m['kind']}] {m['content']}" for m in items)
+            if name == "query_knowledge":
+                question = (arguments.get("question") or "").strip()
+                result = self._knowledge.query(question)
+                if result.get("origin") == "none" or not result.get("source"):
+                    return "（未查询到相关资料）"
+                return f"{result['answer']}\n（来源：{result.get('source')}）"
+            if name == "calculate":
+                expr = (arguments.get("expression") or "").strip()
+                calc = self._calculator.calculate(expr)
+                if calc.get("error"):
+                    return f"错误：{calc['error']}"
+                return f"{calc.get('expression')} = {calc.get('result')}"
+            if name == "list_plans":
+                plans = (self._planner.list_plans() or {}).get("plans") or []
+                if not plans:
+                    return "（还没有保存过规划）"
+                return "\n".join(f"- {p['goal']}（{p.get('step_count', '?')} 步）" for p in plans)
+            return f"错误：未知工具 {name}"
+        except Exception as exc:  # 任何工具执行异常都如实返回，不编造结果
+            return f"错误：工具执行失败 {exc}"
+
+    # M6.1（WO-20260816-29）：阶段 1 工具决策指引（无人设、仅规则）——实测 qwen2.5:7b
+    # 在带人设系统提示词（含 few-shot 对话示例）时不主动调用工具，去掉人设后正常触发。
+    # 因此工具决策与人设回复分两阶段：决策用本指引，回复用人设系统提示词。
+    _TOOL_USE_GUIDANCE = (
+        "你可以调用工具来更好地帮助用户。规则：\n"
+        "- 用户说『提醒我/记得提醒/帮我记/记一下/闹钟/待办/几点提醒/叫我起床』等要记录提醒的话 → 必须调用 add_schedule（参数 text 传用户原话）；\n"
+        "- 用户问『今天/明天有什么安排/我的日程/我的安排』 → 调用 get_schedule；\n"
+        "- 用户问『你记得我…/我说过…/我的记忆/我之前…』 → 调用 query_memory；\n"
+        "- 用户问知识概念（什么是/介绍一下/查一下/帮我查）→ 调用 query_knowledge；\n"
+        "- 用户要求算数/百分比（算一下/多少的/百分之）→ 调用 calculate；\n"
+        "- 用户问保存过的计划 → 调用 list_plans。\n"
+        "只有用户请求确实对应某个工具时才调用；闲聊、情绪陪伴等不需要工具时直接温柔回复即可，不要编造工具结果。"
+    )
+
+    def _try_tool_calling(self, user_input: str, messages: List[dict],
+                          max_tokens: Optional[int] = None):
+        """两阶段 LLM 工具调用（≤3 轮工具决策，随后人设包装回复）。
+
+        阶段 1（工具决策）：仅用规则指引 + 用户输入（不带人设系统提示词，
+        实测 7B 在无人设下才会调用工具）；执行工具并回填。
+        阶段 2（人设回复）：完整人设系统提示词 + 记忆 + 用户输入 + 工具结果 →
+        人设化最终回复（不传 tools，避免压制）。
+
+        返回 (reply, used_tool, failed)：
+        - used_tool=True：工具被执行，reply 为人设化最终回复；
+        - used_tool=False：阶段 1 未产生工具调用（或失败），调用方回退关键词路由。
+        """
+        try:
+            tools = get_tool_specs()
+            stage1 = [
+                {"role": "system", "content": self._TOOL_USE_GUIDANCE},
+                {"role": "user", "content": user_input},
+            ]
+            used_any = False
+            for _ in range(3):
+                resp = self._call_ollama_with_tools(stage1, tools, max_tokens=None)
+                tool_calls = resp.get("tool_calls")
+                if not tool_calls:
+                    if not used_any:
+                        return None, False, False  # 未用工具 → 回退关键词路由
+                    break  # 工具已用过，本轮无更多调用 → 进入阶段 2
+                used_any = True
+                stage1.append({
+                    "role": "assistant",
+                    "content": resp.get("content") or "",
+                    "tool_calls": tool_calls,
+                })
+                for call in tool_calls:
+                    fn = call.get("function", {})
+                    name = fn.get("name", "")
+                    try:
+                        arguments = fn.get("arguments") or {}
+                        if isinstance(arguments, str):
+                            import json
+                            arguments = json.loads(arguments or "{}")
+                    except Exception:
+                        arguments = {}
+                    result = self._execute_tool(name, arguments)
+                    stage1.append({"role": "tool", "name": name, "content": result})
+            if not used_any:
+                return None, False, False
+            # 阶段 2：人设包装（完整系统提示词 + 记忆 + 用户输入 + 工具结果）
+            tool_results = "\n".join(
+                f"[{m.get('name', 'tool')}] {m['content']}" for m in stage1 if m["role"] == "tool"
+            )
+            msgs2 = list(messages) + [
+                {"role": "user", "content": user_input},
+                {
+                    "role": "system",
+                    "content": "用户请求已通过内部能力处理，处理结果为：\n" + tool_results
+                               + "\n请用人设口吻把结果自然地告诉用户（确认/回显/建议都行，"
+                                 "不要提『工具』『函数』『系统』等词，保持温柔治愈、简短口语）。",
+                },
+            ]
+            reply = self._call_ollama(msgs2, max_tokens)
+            return reply, True, False
+        except Exception:
+            return None, False, True  # 工具路径异常 → 回退关键词路由
+
+    @staticmethod
+    def _needs_keyword_route(text: str) -> bool:
+        """工具路径未使用工具时，是否仍需走关键词路由（保证确定性操作发生）。"""
+        return (
+            is_knowledge_query(text)
+            or is_calculator_query(text)
+            or is_memory_query(text)
+            or is_planning_query(text)
+            or is_schedule_query(text)
+        )
 
     @property
     def system_prompt(self) -> str:
