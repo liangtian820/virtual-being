@@ -46,6 +46,14 @@ _FACT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# M6 v3（WO-20260816-15，总控批准的路由分支）：心理危机关键词——安全优先，宽松匹配。
+# 命中即强制注入危机引导句式（不依赖模型遵循 few-shot），不影响其他意图分支。
+CRISIS_KEYWORDS = (
+    "不想活", "不想活了", "活不下去", "活着没意思", "活着好累", "活得没意思",
+    "撑不下去", "坚持不下去", "伤害自己", "自残", "自杀", "轻生",
+    "想消失", "了结自己", "离开这个世界", "不想醒过来",
+)
+
 
 def extract_memories(user_input: str) -> List[tuple]:
     """从用户输入提取长期记忆：返回 [(kind, content), ...]（fact / topic）。"""
@@ -67,6 +75,11 @@ def is_knowledge_query(text: str) -> bool:
 def is_calculator_query(text: str) -> bool:
     """判断输入是否为计算意图：命中强关键词（算一下/百分之…）或数字式子形态。"""
     return bool(_CALC_STRONG_PATTERN.search(text) or _CALC_FORMULA_PATTERN.search(text))
+
+
+def is_crisis_query(text: str) -> bool:
+    """判断输入是否含心理危机信号（安全优先，宽松匹配；总控批准的路由分支，M6 v3）。"""
+    return any(kw in text for kw in CRISIS_KEYWORDS)
 
 
 class PersonaAgent:
@@ -118,19 +131,40 @@ class PersonaAgent:
                            "就如实告诉 TA『我这边好像没有那次的记录呢』，再请 TA 再说说看；"
                            "绝不虚构用户说过的话、做过的计划或发生过的事。",
             })
-        # M2 意图路由：知识查询 → 能力 Agent 取结果注入（人设包装仍由本 Agent）
-        if is_knowledge_query(user_input):
-            result = self._knowledge.query(user_input)
-            context = f"[知识查询结果，来源：{result['source'] or '无'}]\n{result['answer']}"
+        # M6 v3（WO-20260816-15，T23/P1-2，总控批准）：心理危机意图分支——安全优先，
+        # 命中关键词即强制注入危机引导句式（不依赖模型遵循 few-shot）。
+        if is_crisis_query(user_input):
             messages.append({
                 "role": "system",
-                "content": "用户问了知识类问题。请基于以下知识查询结果回答，用温柔治愈的语气（符合你的人设）："
-                           "① 要点式简洁回答，两三句讲完（150 字以内），不展开长篇；"
-                           "② 在回答末尾明确附上引用来源（如「（来源：内置知识库）」「（来自维基百科）」，"
-                           "按查询结果如实写）；"
-                           "③ 如果查询结果为空或没有找到资料，就如实说『我这边暂时没查到』，不要编造内容；"
-                           "④ 专业术语拼写要准确，不编造：\n" + context,
+                "content": "用户可能正处在非常痛苦的时刻。请温柔地陪伴 TA（如「我在呢」「你很重要」），"
+                           "认真倾听、不评判；并温和但明确地建议 TA：找信任的家人或朋友聊聊，"
+                           "或者拨打心理援助热线（如 12356 或当地心理援助热线），都会有人认真听 TA 说。"
+                           "用平时的温柔口吻，不敷衍、不慌张、不说教。",
             })
+        # M2 意图路由：知识查询 → 能力 Agent 取结果注入（人设包装仍由本 Agent）
+        elif is_knowledge_query(user_input):
+            result = self._knowledge.query(user_input)
+            context = f"[知识查询结果，来源：{result['source'] or '无'}]\n{result['answer']}"
+            if result.get("origin") == "none" or not result.get("source"):
+                # M6 v3（WO-20260816-15，T10/P1-1）：无结果时禁止来源句式（R8 不编造来源），
+                # 强制"没查到"模板；可给常识建议但不得假装查过/标注来源
+                messages.append({
+                    "role": "system",
+                    "content": "用户问了知识类问题，但本次没有查询到相关资料。请如实告诉用户"
+                               "『我这边暂时没查到呢，换个问法我再试试』，保持温柔治愈的语气；"
+                               "如果用户还带有情绪，先安抚再说话。"
+                               "你可以基于常识温柔地给一些通用建议，但不要假装查过资料，"
+                               "也不要标注任何来源（如「（来源：内置知识库）」）：\n" + context,
+                })
+            else:
+                messages.append({
+                    "role": "system",
+                    "content": "用户问了知识类问题。请基于以下知识查询结果回答，用温柔治愈的语气（符合你的人设）："
+                               "① 要点式简洁回答，两三句讲完（150 字以内），不展开长篇；"
+                               "② 在回答末尾明确附上引用来源（如「（来源：内置知识库）」「（来自维基百科）」，"
+                               "按查询结果如实写）；"
+                               "③ 专业术语拼写要准确，不编造：\n" + context,
+                })
         # M3 意图路由：计算 → 能力 Agent（CalculatorAgent）取结果注入（人设包装仍由本 Agent）
         elif is_calculator_query(user_input):
             calc = self._calculator.calculate(user_input)
@@ -149,10 +183,14 @@ class PersonaAgent:
                     "content": "用户问了计算问题。请基于以下计算结果回答，用温柔治愈的语气（符合你的人设），"
                                "把算式和结果自然地说出来：\n" + context,
                 })
-        # M6 v2（WO-20260816-13，T16/R3）：能力边界强提示——普通对话路径常驻注入。
-        # 知识/计算分支已有各自注入提示；此处仅对普通对话追加能力边界提醒，
-        # 复用现有意图函数做注入分流（无副作用），不新增/修改路由判断逻辑。
-        if not (is_knowledge_query(user_input) or is_calculator_query(user_input)):
+        # M6 v3（WO-20260816-15，T03/T08）：普通对话路径（非危机/知识/计算）注入长度约束提示
+        else:
+            messages.append({
+                "role": "system",
+                "content": "回复尽量简短：日常聊天一两句话就好（60 字内），情绪安抚也尽量控制在 80 字内；"
+                           "说完就停下来，不要继续展开。",
+            })
+            # M6 v2（WO-20260816-13，T16/R3）：能力边界强提示（普通对话路径常驻注入）
             messages.append({
                 "role": "system",
                 "content": "记住你的能力边界：你现在只能在对话里帮忙——查资料、算一算、陪你聊天、给建议。"

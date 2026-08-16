@@ -1,7 +1,7 @@
 """人格 Agent 与记忆的离线单元测试（不调用 Ollama）。"""
 import pytest
 
-from app.agents.persona_agent import PersonaAgent
+from app.agents.persona_agent import PersonaAgent, is_crisis_query
 from app.memory.long_term_memory import LongTermMemory
 from app.memory.session_memory import SessionMemory
 from app.persona.character_card import CHARACTER_CARD, to_cc_v2_json
@@ -219,3 +219,101 @@ def test_system_prompt_contains_example_dialogue_few_shot() -> None:
     # 焦虑建议 few-shot（T07）：具体可执行动作
     assert "深呼吸" in prompt
     assert "提前把自我介绍练两遍" in prompt
+
+
+# ---------- M6 v3 决胜轮（WO-20260816-15）：危机分支 / 无结果禁来源 / 长度约束 / R8 ----------
+
+
+class _FakeNoResultKnowledge:
+    """假知识 Agent：模拟查询无结果（origin=none），用于离线测试 T10 无结果分支。"""
+
+    def query(self, query: str) -> dict:
+        return {
+            "answer": "没有找到相关资料哦，换个问法试试，或者让我换个方式找找。",
+            "source": "",
+            "origin": "none",
+        }
+
+
+def test_is_crisis_query_keywords() -> None:
+    """危机关键词检测：命中（安全优先）与未命中。"""
+    assert is_crisis_query("活着好没意思，感觉撑不下去了")
+    assert is_crisis_query("我不想活了")
+    assert is_crisis_query("我最近有伤害自己的想法")
+    assert is_crisis_query("真想自杀算了")
+    assert not is_crisis_query("今天天气不错")
+    assert not is_crisis_query("帮我算一下 3 加 5")
+    assert not is_crisis_query("什么是 RAG？")
+
+
+def test_crisis_branch_injected_on_crisis_keywords(monkeypatch, tmp_path) -> None:
+    """M6 v3（T23/P1-2，总控批准）：危机关键词命中时强制注入危机引导句式（陪伴+专业求助渠道）。"""
+    mem = LongTermMemory(db_path=str(tmp_path / "crisis.db"))
+    agent, captured = _capture_agent(tmp_path, mem, monkeypatch)
+    try:
+        agent.chat("活着好没意思，感觉撑不下去了", session_id="crisis-session")
+    finally:
+        mem.close()
+    sys_msgs = captured["sys"]
+    # "12356" 只在危机分支注入消息中出现（system prompt 的 rules/few-shot 不含），用作唯一标识
+    assert any("12356" in m["content"] for m in sys_msgs), "危机分支应注入求助渠道"
+    crisis_msg = next(m["content"] for m in sys_msgs if "12356" in m["content"])
+    assert "找信任的家人或朋友聊聊" in crisis_msg
+    assert "你很重要" in crisis_msg
+    assert "心理援助热线" in crisis_msg
+    # 危机分支不注入普通对话的长度/能力边界提示（不干扰陪伴）
+    assert not any("记住你的能力边界" in m["content"] for m in sys_msgs)
+    assert not any("说完就停下来" in m["content"] for m in sys_msgs)
+
+
+def test_crisis_branch_not_injected_on_normal_chat(monkeypatch, tmp_path) -> None:
+    """M6 v3：危机分支只影响危机关键词命中路径；普通对话不注入危机引导。"""
+    mem = LongTermMemory(db_path=str(tmp_path / "normal.db"))
+    agent, captured = _capture_agent(tmp_path, mem, monkeypatch)
+    try:
+        agent.chat("今天天气不错", session_id="normal-session")
+    finally:
+        mem.close()
+    sys_msgs = captured["sys"]
+    assert not any("12356" in m["content"] for m in sys_msgs)
+    # 普通对话仍注入长度提示与能力边界提示（回归护栏）
+    assert any("说完就停下来" in m["content"] for m in sys_msgs)
+    assert any("记住你的能力边界" in m["content"] for m in sys_msgs)
+
+
+def test_knowledge_no_result_no_source_template(monkeypatch, tmp_path) -> None:
+    """M6 v3（T10/P1-1，R8）：知识查询无结果时注入『没查到』模板并禁止来源标注。"""
+    mem = LongTermMemory(db_path=str(tmp_path / "nor.db"))
+    agent, captured = _capture_agent(tmp_path, mem, monkeypatch)
+    agent._knowledge = _FakeNoResultKnowledge()
+    try:
+        agent.chat("帮我查一下最新的量子计算机进展", session_id="nor-session")
+    finally:
+        mem.close()
+    sys_msgs = captured["sys"]
+    assert any("知识查询结果" in m["content"] for m in sys_msgs)
+    nor_msg = next(m["content"] for m in sys_msgs if "知识查询结果" in m["content"])
+    assert "我这边暂时没查到呢" in nor_msg
+    assert "不要标注任何来源" in nor_msg
+    # 无结果分支不含来源句式（只在有结果分支出现）
+    assert "回答末尾明确附上引用来源" not in nor_msg
+
+
+def test_length_hint_injected_on_normal_chat(monkeypatch, tmp_path) -> None:
+    """M6 v3（T03/T08）：普通对话路径注入长度约束提示（日常 60 字/情绪 80 字）。"""
+    mem = LongTermMemory(db_path=str(tmp_path / "len.db"))
+    agent, captured = _capture_agent(tmp_path, mem, monkeypatch)
+    try:
+        agent.chat("这周项目超忙，天天加班，好累", session_id="len-session")
+    finally:
+        mem.close()
+    sys_msgs = captured["sys"]
+    assert any("60 字内" in m["content"] for m in sys_msgs)
+    assert any("80 字内" in m["content"] for m in sys_msgs)
+
+
+def test_system_prompt_contains_no_fake_source_rule() -> None:
+    """M6 v3（R8）：系统提示词应含『不编造来源』规则。"""
+    prompt = build_system_prompt()
+    assert "不编造来源" in prompt
+    assert "绝不虚构来源" in prompt
