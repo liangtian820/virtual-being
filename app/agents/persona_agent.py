@@ -103,7 +103,10 @@ class PersonaAgent:
             messages.append({
                 "role": "system",
                 "content": "以下是用户过往对话中的长期记忆（供你自然地体现『记得用户』，"
-                           "不要生硬复述，除非话题相关）：\n" + lines,
+                           "不要生硬复述，除非话题相关）：\n" + lines
+                           + "\n如果这些记忆与当前话题无关，或你其实并没有相关的记忆，"
+                             "就如实告诉用户「我这边好像没有那次的记录呢」，再请 TA 再说说看；"
+                             "绝不虚构用户说过的话、做过的计划或发生过的事。",
             })
         # M2 意图路由：知识查询 → 能力 Agent 取结果注入（人设包装仍由本 Agent）
         if is_knowledge_query(user_input):
@@ -111,8 +114,10 @@ class PersonaAgent:
             context = f"[知识查询结果，来源：{result['source'] or '无'}]\n{result['answer']}"
             messages.append({
                 "role": "system",
-                "content": "用户问了知识类问题。请基于以下知识查询结果回答，"
-                           "用温柔治愈的语气（符合你的人设），如实说明信息来源，不编造：\n" + context,
+                "content": "用户问了知识类问题。请基于以下知识查询结果回答，用温柔治愈的语气（符合你的人设）："
+                           "① 要点式简洁回答，两三句讲完（150 字以内），不展开长篇；"
+                           "② 引用知识时如实说明来源（如「内置知识库」或「维基百科」），查不到就如实说没查到；"
+                           "③ 专业术语拼写要准确，不编造：\n" + context,
             })
         # M3 意图路由：计算 → 能力 Agent（CalculatorAgent）取结果注入（人设包装仍由本 Agent）
         elif is_calculator_query(user_input):
