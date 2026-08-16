@@ -5,7 +5,7 @@
 由人格 Agent（persona_agent）在对话中让 LLM 自主决定调用。
 
 原则：
-- 工具数量精而不多（6 个），参数简单（多为单字符串），降低 7B 选型与填参失误率；
+- 覆盖既有能力全集（日程增删查/完成、计划列表/保存、记忆、知识、计算），参数简单；
 - 描述用中文，参数必填标注；
 - 工具只返回结果字符串；失败返回错误说明（由 LLM 决定如何向用户转述，绝不编造）。
 """
@@ -40,6 +40,40 @@ TOOL_SPECS: list = [
                     "text": {
                         "type": "string",
                         "description": "用户原始的提醒/日程描述（原样传入，含时间与事项，如『明天下午3点提醒我喝水』）。",
+                    }
+                },
+                "required": ["text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mark_schedule_done",
+            "description": "把一条日程提醒标记为已完成。用户说『今天喝水的提醒完成了』『下午的提醒做完了』等表示某条提醒已办完时调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "要标记完成的目标描述（含日期/时间/事项线索），如『今天喝水的提醒完成了』。",
+                    }
+                },
+                "required": ["text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_schedule",
+            "description": "删除一条日程提醒。用户说『删掉明天下午的提醒』『取消今晚的闹钟』『移除某条待办』等要删除提醒时调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "要删除的目标描述（含日期/时间/事项线索），如『删掉明天下午的提醒』。",
                     }
                 },
                 "required": ["text"],
@@ -105,6 +139,51 @@ TOOL_SPECS: list = [
             "parameters": {
                 "type": "object",
                 "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_plan",
+            "description": "把一份规划（目标+步骤清单）保存到用户的计划库。用户说『把这个计划存下来』『帮我保存这个计划』『记下这个计划』时调用；步骤来自对话中已生成的计划内容。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal": {
+                        "type": "string",
+                        "description": "计划的目标简述，如『学会弹吉他』。",
+                    },
+                    "steps": {
+                        "type": "array",
+                        "description": "计划的步骤清单（至少 1 步），每步含标题与可选说明。",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "no": {
+                                    "type": "integer",
+                                    "description": "步骤序号（从 1 开始，可选）。",
+                                },
+                                "title": {
+                                    "type": "string",
+                                    "description": "步骤标题，如『买一把吉他』。",
+                                },
+                                "priority": {
+                                    "type": "string",
+                                    "description": "优先级：高/中/低（可选）。",
+                                    "enum": ["高", "中", "低"],
+                                },
+                                "detail": {
+                                    "type": "string",
+                                    "description": "该步骤的一句话说明（可选）。",
+                                },
+                            },
+                            "required": ["title"],
+                        },
+                    },
+                },
+                "required": ["goal", "steps"],
             },
         },
     },

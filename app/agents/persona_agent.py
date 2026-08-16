@@ -553,6 +553,24 @@ class PersonaAgent:
                 if sched.get("error"):
                     return f"错误：{sched['error']}"
                 return f"已记录：日期 {sched.get('date')} 时间 {sched.get('time')} 事项 {sched.get('event')}"
+            if name == "mark_schedule_done":
+                text = (arguments.get("text") or "").strip()
+                if not text:
+                    return "错误：缺少目标描述"
+                sched = self._scheduler.mark_done(text)
+                if sched.get("error"):
+                    return f"错误：{sched['error']}"
+                lines = "\n".join(f"- {e['time']} {e['event']}" for e in sched.get("entries", []))
+                return f"已标记完成 {sched.get('updated', 0)} 条：\n{lines}" if lines else "已标记完成"
+            if name == "delete_schedule":
+                text = (arguments.get("text") or "").strip()
+                if not text:
+                    return "错误：缺少目标描述"
+                sched = self._scheduler.delete(text)
+                if sched.get("error"):
+                    return f"错误：{sched['error']}"
+                lines = "\n".join(f"- {e['time']} {e['event']}" for e in sched.get("entries", []))
+                return f"已删除 {sched.get('deleted', 0)} 条：\n{lines}" if lines else "已删除"
             if name == "query_memory":
                 question = (arguments.get("question") or "").strip()
                 items = self._memory_long.retrieve_fused(question, limit=3)
@@ -576,6 +594,13 @@ class PersonaAgent:
                 if not plans:
                     return "（还没有保存过规划）"
                 return "\n".join(f"- {p['goal']}（{p.get('step_count', '?')} 步）" for p in plans)
+            if name == "save_plan":
+                goal = (arguments.get("goal") or "").strip()
+                steps = arguments.get("steps") or []
+                result = self._planner.save({"goal": goal, "steps": steps})
+                if result.get("error"):
+                    return f"错误：{result['error']}"
+                return f"已保存计划（id={result.get('id')}）：{goal}（{len(steps)} 步）"
             return f"错误：未知工具 {name}"
         except Exception as exc:  # 任何工具执行异常都如实返回，不编造结果
             return f"错误：工具执行失败 {exc}"
@@ -587,10 +612,13 @@ class PersonaAgent:
         "你可以调用工具来更好地帮助用户。规则：\n"
         "- 用户说『提醒我/记得提醒/帮我记/记一下/闹钟/待办/几点提醒/叫我起床』等要记录提醒的话 → 必须调用 add_schedule（参数 text 传用户原话）；\n"
         "- 用户问『今天/明天有什么安排/我的日程/我的安排』 → 调用 get_schedule；\n"
+        "- 用户表示某条提醒已完成/办完了（『完成了/做完了』『标记完成』）→ 调用 mark_schedule_done；\n"
+        "- 用户要求删除某条提醒（『删掉/取消/移除』）→ 调用 delete_schedule；\n"
         "- 用户问『你记得我…/我说过…/我的记忆/我之前…』 → 调用 query_memory；\n"
         "- 用户问知识概念（什么是/介绍一下/查一下/帮我查）→ 调用 query_knowledge；\n"
         "- 用户要求算数/百分比（算一下/多少的/百分之）→ 调用 calculate；\n"
-        "- 用户问保存过的计划 → 调用 list_plans。\n"
+        "- 用户问保存过的计划 → 调用 list_plans；\n"
+        "- 用户要求把计划保存/存下来（『存下来/保存这个计划』『把计划存起来』）→ 调用 save_plan。\n"
         "只有用户请求确实对应某个工具时才调用；闲聊、情绪陪伴等不需要工具时直接温柔回复即可，不要编造工具结果。"
     )
 

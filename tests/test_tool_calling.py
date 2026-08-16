@@ -37,14 +37,24 @@ class FakeMemoryLong:
 
 
 class FakeScheduler:
-    """假日程 Agent：记录 add 调用，today/tomorrow 空。"""
+    """假日程 Agent：记录 add/delete/mark_done 调用，today/tomorrow 空。"""
 
     def __init__(self) -> None:
         self.added = []
+        self.marked = []
+        self.deleted = []
 
     def add(self, text):
         self.added.append(text)
         return {"date": "2026-08-17", "time": "15:00", "event": text, "error": None}
+
+    def mark_done(self, text):
+        self.marked.append(text)
+        return {"updated": 1, "entries": [{"time": "15:00", "event": "喝水"}], "error": None}
+
+    def delete(self, text):
+        self.deleted.append(text)
+        return {"deleted": 1, "entries": [{"time": "15:00", "event": "喝水"}], "error": None}
 
     def today(self):
         return {"entries": [], "count": 0}
@@ -54,8 +64,15 @@ class FakeScheduler:
 
 
 class FakePlanner:
+    def __init__(self) -> None:
+        self.saved = []
+
     def list_plans(self):
         return {"plans": [{"goal": "学做饭", "step_count": 6}], "count": 1, "error": None}
+
+    def save(self, plan):
+        self.saved.append(plan)
+        return {"id": 7, "error": None}
 
 
 class FakeKnowledge:
@@ -85,13 +102,15 @@ def test_tool_specs_complete():
     specs = get_tool_specs()
     names = {s["function"]["name"] for s in specs}
     assert names == {
-        "get_schedule", "add_schedule", "query_memory",
-        "query_knowledge", "calculate", "list_plans",
+        "get_schedule", "add_schedule", "mark_schedule_done", "delete_schedule",
+        "list_plans", "save_plan", "query_memory", "query_knowledge", "calculate",
     }
     for s in specs:
         assert s["type"] == "function"
         assert s["function"]["description"]
         assert isinstance(s["function"]["parameters"].get("properties"), dict)
+        # 必填参数已标注（required 字段存在）
+        assert "required" in s["function"]["parameters"]
 
 
 # ---------- _execute_tool 薄封装 ----------
@@ -108,6 +127,27 @@ def test_execute_get_schedule_empty():
     agent = _make_agent()
     out = agent._execute_tool("get_schedule", {"date": "today"})
     assert "没有日程" in out
+
+
+def test_execute_mark_schedule_done():
+    agent = _make_agent()
+    out = agent._execute_tool("mark_schedule_done", {"text": "今天喝水的提醒完成了"})
+    assert "已标记完成" in out
+    assert agent._scheduler.marked == ["今天喝水的提醒完成了"]
+
+
+def test_execute_delete_schedule():
+    agent = _make_agent()
+    out = agent._execute_tool("delete_schedule", {"text": "删掉明天下午的提醒"})
+    assert "已删除" in out
+    assert agent._scheduler.deleted == ["删掉明天下午的提醒"]
+
+
+def test_execute_save_plan():
+    agent = _make_agent()
+    out = agent._execute_tool("save_plan", {"goal": "学会弹吉他", "steps": [{"title": "买一把吉他"}]})
+    assert "已保存计划" in out and "学会弹吉他" in out
+    assert agent._planner.saved == [{"goal": "学会弹吉他", "steps": [{"title": "买一把吉他"}]}]
 
 
 def test_execute_query_memory_empty():
