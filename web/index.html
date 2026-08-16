@@ -166,12 +166,13 @@
       <div id="voice-status" class="voice-status" role="status" aria-live="polite"></div>
     </section>
 
-    <!-- 能力面板（M5.2：日程 / 规划 / 记忆） -->
+    <!-- 能力面板（M5.2：日程 / 规划 / 记忆；M5.3：可折叠侧栏） -->
     <aside class="panels" aria-label="能力面板">
       <div class="panels-tabs" role="tablist">
         <button type="button" class="tab active" data-panel="schedule" role="tab" aria-selected="true">📅 日程</button>
         <button type="button" class="tab" data-panel="plans" role="tab" aria-selected="false">🗒 规划</button>
         <button type="button" class="tab" data-panel="memory" role="tab" aria-selected="false">🧠 记忆</button>
+        <button type="button" id="panels-toggle" class="panels-toggle" title="收起/展开面板" aria-label="收起/展开面板" aria-expanded="true">◀</button>
       </div>
 
       <!-- 日程面板 -->

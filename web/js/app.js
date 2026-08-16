@@ -720,6 +720,17 @@
   MEMORY_REFRESH.addEventListener("click", () => loadMemory());
   MEMORY_CLEAR.addEventListener("click", clearMemory);
 
+  /* ---------- M5.3：面板折叠（纯布局行为，业务逻辑不变） ---------- */
+  const PANELS_EL = document.querySelector(".panels");
+  const PANELS_TOGGLE = document.getElementById("panels-toggle");
+  if (PANELS_EL && PANELS_TOGGLE) {
+    PANELS_TOGGLE.addEventListener("click", () => {
+      const collapsed = PANELS_EL.classList.toggle("collapsed");
+      PANELS_TOGGLE.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      PANELS_TOGGLE.title = collapsed ? "展开面板" : "收起面板";
+    });
+  }
+
   /* ---------- 启动 ---------- */
   initVoice();
   INPUT.focus();
