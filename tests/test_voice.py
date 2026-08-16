@@ -11,7 +11,7 @@ import app.main as main_module
 from app.main import app
 from app.voice.asr import WhisperASR
 from app.voice.pipeline import VoicePipeline
-from app.voice.tts import EdgeTTS
+from app.voice.tts import EdgeTTS, PiperTTS
 
 
 class FakeWhisperModel:
@@ -472,14 +472,33 @@ def test_config_m42_asr_defaults() -> None:
 
 
 def test_pipeline_max_tokens_mapping() -> None:
-    """max_reply_chars 应映射为 Ollama num_predict 上限（60 字 → 162）。"""
+    """max_reply_chars 应映射为 Ollama num_predict 上限（60 字 → 162，40 字 → 108）。"""
     assert VoicePipeline._derive_max_tokens(60) == 162
+    assert VoicePipeline._derive_max_tokens(40) == 108
     assert VoicePipeline._derive_max_tokens(0) == 64  # 下限保护
     assert VoicePipeline._derive_max_tokens(None) is None  # 不限长不限制
     pipe = VoicePipeline(max_reply_chars=60, max_tokens=None)
     assert pipe._max_tokens == 162
     pipe2 = VoicePipeline(max_reply_chars=60, max_tokens=999)
     assert pipe2._max_tokens == 999  # 显式传入优先
+
+
+def test_config_m43_voice_defaults() -> None:
+    """M4.3 默认：语音回复 ≤40 字；voice_llm_model 默认 None（跟随 ollama_model）。"""
+    from app.config import CONFIG
+
+    assert CONFIG.voice_max_reply_chars == 40
+    assert CONFIG.voice_llm_model is None
+
+
+def test_pipeline_uses_voice_llm_model() -> None:
+    """pipeline 应把 llm_model 传给 PersonaAgent（voice 专用模型覆盖，文本链路不受影响）。"""
+    from app.config import CONFIG
+
+    pipe = VoicePipeline(llm_model="qwen2.5:3b")
+    assert pipe._agent._model == "qwen2.5:3b"
+    pipe_default = VoicePipeline()
+    assert pipe_default._agent._model == CONFIG.ollama_model
 
 
 def test_pipeline_passes_max_tokens_to_agent(tmp_path) -> None:
@@ -550,3 +569,31 @@ def test_web_voice_status_ui_hints() -> None:
     assert "TA 正在思考" in js
     assert "正在合成回复" in js
     assert ".voice-status" in css
+
+
+# ---------- M4.3：piper 本地 TTS 后端 ----------
+
+
+def test_piper_tts_synthesize_with_fake_voice(tmp_path) -> None:
+    """piper 后端应写入 WAV 音频并记录耗时（注入假 voice，不依赖本地模型）。"""
+
+    class FakePiperVoice:
+        def synthesize_wav(self, text: str, wf) -> None:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(22050)
+            wf.writeframes(b"\x00\x00" * 100)
+
+    tts = PiperTTS(voice=FakePiperVoice())
+    out = tmp_path / "p.wav"
+    tts.synthesize("你好", str(out))
+    assert out.stat().st_size > 0
+    assert tts.last_latency_ms >= 0
+    assert tts.last_cached_hit is False
+
+
+def test_piper_tts_empty_text_raises(tmp_path) -> None:
+    """piper 后端空文本同样拒绝。"""
+    tts = PiperTTS(voice=object())
+    with pytest.raises(ValueError):
+        tts.synthesize("   ", str(tmp_path / "p.wav"))

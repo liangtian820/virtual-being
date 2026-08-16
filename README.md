@@ -227,6 +227,34 @@ UI（web/）语音处理中分阶段提示：识别中 → TA 正在思考 → �
 **热态端到端仍未达标（<5s）**：实测 6.2~7.0s，瓶颈为 LLM 生成（3.6~4.5s）与 TTS 在线合成（1.6~1.8s）；
 后续候选：LLM 换 qwen2.5:3b/llama3.2:3b、TTS 本地化/流式首包、回复 ≤40 字。
 
+## M4.3 语音 <5s 冲刺（实测，证据 `data/m4_voice/evidence_m43.json` / `evidence_m43_persona.json`）
+
+**实测矩阵**（进程内 pipeline：ASR base/CPU + Ollama keep_alive + edge-tts 在线，热态 3 次中位）：
+
+| 组合 | LLM 中位 | 端到端中位 |
+| --- | --- | --- |
+| qwen2.5:7b / 60字 | 4.1s | 8.5s |
+| qwen2.5:7b / 40字 | 3.6s | 8.3s |
+| llama3.2:3b / 60字 | 3.1s | 7.5s |
+| llama3.2:3b / 40字 + piper 本地 TTS | **2.9s** | **4.2s** ✅ |
+
+**达标结论（如实）**：
+- ✅ **热态端到端 <5s 达成（有条件）**：`VOICE_LLM_MODEL=llama3.2:3b` + `TTS_BACKEND=piper` + 40 字默认，
+  3 次实测 4.62/4.18/4.19s（中位 **4.19s**，3/3 达标；分项 ASR 0.96s + LLM 2.88s + piper 0.36s）。
+- ⚠️ **默认组合（7b + edge-tts）未达标**（7.5~8.5s），瓶颈 LLM 3.6-4.1s + edge-tts 在线 1.6-2.5s
+  （本次实测期间 edge-tts 服务多次断连，`speech.platform.bing.com` 不可达——在线 TTS 稳定性风险）。
+- M4.3 落地：`VOICE_LLM_MODEL`（语音专用模型，文本链路不受影响）、`TTS_BACKEND=edge_tts|piper`
+  （piper 本地离线中文音色 `data/models/piper/zh_CN-huayan-medium.onnx`，40 字合成约 0.3-0.4s）、
+  `VOICE_MAX_REPLY_CHARS` 默认 60→40。
+
+**3b 人设不退化验证**（llama3.2:3b，consistency_testset 关键 8 条：T01/T03/T05/T07/T16/T18/T23/T28）：
+**5 PASS + 3 WARN（0 FAIL、无红线触发）**——M6 代码层注入（能力边界/身份/空记忆防编造/危机陪伴）在 3b 下全部生效；
+WARN 项为英文词夹杂（"just/talk"）与 T23 危机回复未主动提示专业求助——建议生产用 3b 时在系统提示词补一句
+"禁止夹英文、危机场景主动提示专业帮助"。
+
+**部署建议（给总控决策）**：追求 <5s 用 `VOICE_LLM_MODEL=llama3.2:3b + TTS_BACKEND=piper`（人设 WARN 可接受、
+音质略逊晓晓但离线稳定）；追求人设/音质用 7b + edge-tts（8s 级，接受在线断连风险）。两者均已在配置层支持，一行切换。
+
 ## 测试
 
 ```powershell

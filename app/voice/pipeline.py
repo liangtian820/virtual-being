@@ -16,7 +16,14 @@ from typing import Dict, Optional
 from app.agents.persona_agent import PersonaAgent
 from app.config import CONFIG
 from app.voice.asr import WhisperASR
-from app.voice.tts import EdgeTTS
+from app.voice.tts import EdgeTTS, PiperTTS
+
+
+def _make_tts():
+    """按 CONFIG.tts_backend 构造默认 TTS（edge_tts=在线 / piper=本地离线）。"""
+    if CONFIG.tts_backend == "piper":
+        return PiperTTS()
+    return EdgeTTS()
 
 
 class VoicePipeline:
@@ -24,7 +31,7 @@ class VoicePipeline:
 
     def __init__(self, asr=None, tts=None, agent: Optional[PersonaAgent] = None,
                  reply_dir: Optional[str] = None, max_reply_chars: Optional[int] = None,
-                 max_tokens: Optional[int] = None) -> None:
+                 max_tokens: Optional[int] = None, llm_model: Optional[str] = None) -> None:
         """初始化链路；各组件可注入（测试/替换用）。
 
         :param asr: ASR 实例（默认 WhisperASR）
@@ -35,10 +42,16 @@ class VoicePipeline:
             仅影响语音链路的 TTS/返回文本，不改会话记忆与文本 API；None=不限制）
         :param max_tokens: Ollama num_predict 上限；None 时按 max_reply_chars 推导
             （M4.2：从源头限制生成长度，避免先生成再截断）
+        :param llm_model: 语音链路专用 Ollama 模型（M4.3；默认 CONFIG.voice_llm_model，
+            未设置时跟随 CONFIG.ollama_model —— 文本链路不受影响）
         """
         self._asr = asr or WhisperASR()
-        self._tts = tts or EdgeTTS()
-        self._agent = agent or PersonaAgent()
+        self._tts = tts if tts is not None else _make_tts()
+        if agent is None:
+            llm_model = llm_model if llm_model is not None else CONFIG.voice_llm_model
+            self._agent = PersonaAgent(model=llm_model or CONFIG.ollama_model)
+        else:
+            self._agent = agent
         self._reply_dir = reply_dir or CONFIG.voice_reply_dir
         if max_reply_chars is None:
             max_reply_chars = CONFIG.voice_max_reply_chars

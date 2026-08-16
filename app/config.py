@@ -36,6 +36,9 @@ class Config:
     max_history_turns: int = field(default_factory=lambda: int(os.getenv("PERSONA_MAX_HISTORY_TURNS", "10")))
     # M4.1 延迟优化：Ollama keep_alive 长驻（如 "60m"），消除每次对话的模型冷启动
     ollama_keep_alive: str = field(default_factory=lambda: os.getenv("OLLAMA_KEEP_ALIVE", "60m"))
+    # M4.3：语音链路专用 LLM 模型覆盖（None=跟随 ollama_model；可设 VOICE_LLM_MODEL=qwen2.5:3b 等
+    # 小模型降低生成延迟，文本链路不受影响）
+    voice_llm_model: Optional[str] = field(default_factory=lambda: os.getenv("VOICE_LLM_MODEL") or None)
     # M4 语音配置（ASR）：Whisper 本地识别，中文支持
     # M4.2 默认调优：base + CPU(int8) —— 基准实测 base/CPU 937ms 稳定，
     # 且不占用 Ollama 需要的 6GB 显存（避免争抢导致 ASR/LLM 双双变慢）
@@ -53,11 +56,14 @@ class Config:
     # M4 语音配置（TTS）：edge-tts 现成音色，默认中文女声「晓晓」
     tts_voice: str = field(default_factory=lambda: os.getenv("TTS_VOICE", "zh-CN-XiaoxiaoNeural"))
     tts_rate: str = field(default_factory=lambda: os.getenv("TTS_RATE", "+0%"))
+    # M4.3：TTS 后端（edge_tts=在线晓晓音质好/需联网；piper=本地离线/稳定，模型 data/models/piper）
+    tts_backend: str = field(default_factory=lambda: os.getenv("TTS_BACKEND", "edge_tts"))
     # M4 回复音频落盘目录（相对项目根）
     voice_reply_dir: str = field(default_factory=lambda: os.getenv("VOICE_REPLY_DIR", "data/voice_replies"))
     # M4.1 延迟优化：语音回复长度约束（字符数，仅语音链路生效；None=不限制）
+    # M4.3：默认 60 → 40（缩短音频时长与生成量，配合 <5s 冲刺）
     voice_max_reply_chars: Optional[int] = field(
-        default_factory=lambda: int(os.getenv("VOICE_MAX_REPLY_CHARS", "60"))
+        default_factory=lambda: int(os.getenv("VOICE_MAX_REPLY_CHARS", "40"))
     )
     # M4.1 延迟优化：TTS 合成结果 LRU 缓存（key=文本+音色；目录 + 内存 LRU 容量）
     tts_cache_dir: str = field(default_factory=lambda: os.getenv("TTS_CACHE_DIR", "data/tts_cache"))
