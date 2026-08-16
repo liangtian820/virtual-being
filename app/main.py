@@ -11,12 +11,16 @@ from typing import Dict, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.agents.persona_agent import PersonaAgent
 from app.voice.pipeline import VoicePipeline
 
-app = FastAPI(title="Virtual Being", version="0.4.0", description="AI 虚拟人物 · M4 语音")
+app = FastAPI(title="Virtual Being", version="0.5.0", description="AI 虚拟人物 · M5 形象")
+
+# M5 形象：Web 聊天界面静态资源目录（index.html / css / js）
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 _agent = PersonaAgent()
 
@@ -123,3 +127,15 @@ def voice_reply(filename: str) -> FileResponse:
     if not str(target).startswith(str(base)) or not target.is_file():
         raise HTTPException(status_code=404, detail="音频不存在")
     return FileResponse(target, media_type="audio/mpeg")
+
+
+# ---------- M5 形象：Web 聊天界面（静态挂载，不改动任何已有 API 逻辑） ----------
+
+# 挂载 web/ 目录为 /static，提供 index.html 之外的 css/js 等静态资源
+app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="web_static")
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    """返回 Web 聊天界面首页（立绘 + 对话窗 + 语音控件）。"""
+    return FileResponse(WEB_DIR / "index.html", media_type="text/html")

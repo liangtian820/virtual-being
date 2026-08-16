@@ -2,13 +2,13 @@
 
 一个**能沟通的专属 Agent**：温柔治愈的二次元角色，通过连接多个 Agent 构建，既能陪伴聊天、也能当助手干活。
 
-## 当前状态：M4（语音）
+## 当前状态：M5（形象）
 
 - ✅ M1 文本灵魂：Ollama 本地推理（qwen2.5:7b）+ 人格 Agent + 会话内记忆
 - ✅ M2 能力扩展：知识查询 + 计算能力 Agent（意图路由、人设包装）
 - ✅ M3 专属记忆：SQLite 跨会话长期记忆（fact + topic）
 - ✅ M4 语音：ASR（Whisper 本地识别，中文）+ TTS（edge-tts 中文女声）+ 语音对话链路（说→听→回→播）
-- ⏳ M5：形象（Live2D / 立绘）
+- ✅ M5 形象：Web 聊天界面（程序化原创立绘 + 表情状态 + 语音控件）
 
 ## 快速开始
 
@@ -16,10 +16,20 @@
 pip install -r requirements.txt
 python -m scripts.run_demo                # CLI 文本对话
 python -m scripts.run_voice_demo --self-test   # CLI 语音对话（自动生成中文输入 → 全链路）
-uvicorn app.main:app --port 8000         # Web API
+uvicorn app.main:app --port 8000         # Web 服务
 ```
 
 要求：本机已安装并启动 [Ollama](https://ollama.com)，已拉取 `qwen2.5:7b`。
+
+### Web 聊天界面（M5）
+
+启动服务后，浏览器打开 **http://127.0.0.1:8000/** 即可与 TA 面对面聊天：
+
+- **立绘形象**：程序化原创 SVG 二次元立绘（温柔治愈风，无版权风险），带轻微浮动/呼吸动态
+- **表情状态**：默认 / 思考 / 说话 / 开心，随对话自动切换（发送时思考、回复时说话、收到后开心）
+- **文本对话**：走真实 `POST /chat` API（不造假数据）
+- **语音对话**：按住 🎙 说话 → 浏览器录音（MediaRecorder）→ `POST /chat/voice` → 自动播放回复音频
+- 页面轻量：原生 HTML/CSS/JS 单页，无框架依赖，支持减弱动画（`prefers-reduced-motion`）
 
 ### 语音说明（M4）
 
@@ -32,6 +42,8 @@ uvicorn app.main:app --port 8000         # Web API
 
 ## API
 
+- `GET /` — Web 聊天界面首页（立绘 + 对话窗 + 语音控件）
+- `GET /static/*` — 前端静态资源（css/js，来自 `web/` 目录）
 - `POST /chat` — `{"query": "你好", "session_id": "可选"}` → `{"reply": "...", "session_id": "..."}`
 - `POST /chat/voice` — multipart 上传音频（字段 `file`，可选 `session_id`）→
   `{"text", "reply", "session_id", "audio_url", "latencies_ms"}`；`audio_url` 指向
@@ -58,6 +70,13 @@ curl -F "file=@user.mp3" http://127.0.0.1:8000/chat/voice
 ```
 用户语音音频 → ASR(Whisper 本地识别) → 人格Agent 对话 → TTS(edge-tts 中文女声) → 回复音频
    （说）            （听）                    （回）                      （说/播）
+```
+
+### 形象链路（M5）
+
+```
+浏览器(立绘+表情状态机) → POST /chat(文本) / POST /chat/voice(MediaRecorder 录音)
+      → 后端真实链路 → 回复文本逐字"说话"+回复音频自动播放 → 表情:思考→说话→开心
 ```
 
 ## 延迟基线（M4 实测，本机：RTX 3060 Laptop 6GB + Ollama qwen2.5:7b GPU 82% offload）
@@ -89,6 +108,8 @@ curl -F "file=@user.mp3" http://127.0.0.1:8000/chat/voice
 ```powershell
 python -m pytest -q        # 全部离线：mock ASR/TTS 与外部服务
 ```
+
+M5 相关：`tests/test_web_ui.py`（首页路由 / 静态挂载 / 既有 API 回归护栏）。
 
 ## 相关文档（知识库）
 

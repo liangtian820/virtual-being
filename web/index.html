@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Virtual Being · 温柔治愈的二次元专属伙伴——Web 聊天界面（M5 形象）">
+  <title>Virtual Being · 温柔治愈的专属伙伴</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='13' font-size='13'%3E%F0%9F%92%97%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="bg-blobs" aria-hidden="true">
+    <span class="blob b1"></span>
+    <span class="blob b2"></span>
+    <span class="blob b3"></span>
+  </div>
+
+  <main class="stage">
+    <!-- 立绘区：程序化原创 SVG 二次元形象 + 表情状态 -->
+    <section class="portrait-panel" aria-label="虚拟人物形象区">
+      <div id="portrait" class="portrait" data-state="default">
+        <svg class="character" viewBox="0 0 320 420" role="img" aria-label="温柔治愈的二次元立绘形象">
+          <defs>
+            <radialGradient id="halo" cx="50%" cy="42%" r="62%">
+              <stop offset="0%" stop-color="#fff6fa"/>
+              <stop offset="100%" stop-color="#fde4f0"/>
+            </radialGradient>
+            <linearGradient id="hairMain" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#ffdce8"/>
+              <stop offset="100%" stop-color="#f7a8c8"/>
+            </linearGradient>
+            <linearGradient id="hairDeep" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#fbd3e2"/>
+              <stop offset="100%" stop-color="#ef9dbf"/>
+            </linearGradient>
+            <linearGradient id="sweaterGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#fffaf4"/>
+              <stop offset="100%" stop-color="#ffe9dc"/>
+            </linearGradient>
+          </defs>
+
+          <!-- 背景光晕与星屑 -->
+          <circle cx="160" cy="192" r="152" fill="url(#halo)"/>
+          <g class="sparkles" fill="#ffc9de">
+            <path class="spark s1" d="M42 92 l4 10 10 4 -10 4 -4 10 -4 -10 -10 -4 10 -4 z"/>
+            <path class="spark s2" d="M284 68 l3 8 8 3 -8 3 -3 8 -3 -8 -8 -3 8 -3 z"/>
+            <path class="spark s3" d="M50 300 l3 7 7 3 -7 3 -3 7 -3 -7 -7 -3 7 -3 z"/>
+            <path class="spark s4" d="M272 252 l3 7 7 3 -7 3 -3 7 -3 -7 -7 -3 7 -3 z"/>
+          </g>
+
+          <!-- 后发 -->
+          <path class="hair-back" d="M88 172 c-4 42 6 80 30 106 l0 -22 c-16 -18 -22 -50 -20 -84 z" fill="url(#hairDeep)"/>
+          <path class="hair-back" d="M232 172 c4 42 -6 80 -30 106 l0 -22 c16 -18 22 -50 20 -84 z" fill="url(#hairDeep)"/>
+
+          <!-- 身体（奶白毛衣 + 小爱心） -->
+          <g id="body">
+            <path d="M160 258 c-50 0 -76 28 -80 84 c-1 13 10 24 24 24 l112 0 c14 0 25 -11 24 -24 c-4 -56 -30 -84 -80 -84 z" fill="url(#sweaterGrad)"/>
+            <path d="M160 258 c-50 0 -76 28 -80 84" stroke="#f3c3ab" stroke-width="3" fill="none"/>
+            <path d="M160 258 c-9 -7 -21 -7 -30 0 l30 38 30 -38 c-9 -7 -21 -7 -30 0 z" fill="#ffffff" opacity="0.9"/>
+            <path class="heart" d="M160 300 c-4 -7 -13 -7 -16 -1 c-1 3 0 5 2 7 l14 14 14 -14 c2 -2 3 -4 2 -7 c-3 -6 -12 -6 -16 1 z" fill="#ff9eb5"/>
+          </g>
+
+          <!-- 脖子 -->
+          <rect x="148" y="226" width="24" height="36" rx="10" fill="#ffe4d6"/>
+
+          <!-- 脸部 -->
+          <ellipse cx="160" cy="190" rx="66" ry="70" fill="#ffe9dc"/>
+
+          <!-- 刘海 + 呆毛 -->
+          <path class="bangs" d="M94 178 c-6 -44 24 -74 66 -74 c42 0 72 30 66 74 c-10 -30 -26 -46 -50 -52 c-16 8 -24 26 -28 40 c-8 -18 -18 -30 -30 -36 c-14 10 -20 28 -24 48 z" fill="url(#hairMain)"/>
+          <path class="bangs" d="M118 120 c16 10 26 30 30 50 c6 -16 14 -26 26 -32 c-8 -12 -18 -20 -30 -24 c-8 4 -16 4 -26 6 z" fill="#ffdce8"/>
+          <path class="ahoge" d="M158 102 c-2 -14 4 -22 14 -26 c-4 8 -2 14 4 18 c-6 4 -10 8 -18 8 z" fill="#f7a8c8"/>
+          <!-- 发丝高光 -->
+          <path d="M108 150 q20 -18 44 -20" stroke="#ffffff" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.55"/>
+
+          <!-- 侧发 -->
+          <path class="side-lock" d="M98 168 c-10 26 -8 56 4 84 c-18 -26 -20 -58 -4 -84 z" fill="url(#hairDeep)"/>
+          <path class="side-lock" d="M222 168 c10 26 8 56 -4 84 c18 -26 20 -58 4 -84 z" fill="url(#hairDeep)"/>
+
+          <!-- ========== 表情组（随 data-state 切换） ========== -->
+
+          <!-- 默认：温柔微笑 -->
+          <g class="expr expr-default">
+            <ellipse cx="133" cy="192" rx="10" ry="12" fill="#7a4a32"/>
+            <ellipse cx="187" cy="192" rx="10" ry="12" fill="#7a4a32"/>
+            <circle cx="136" cy="187" r="4" fill="#ffffff" opacity="0.95"/>
+            <circle cx="190" cy="187" r="4" fill="#ffffff" opacity="0.95"/>
+            <path d="M120 174 q13 -8 26 -2" stroke="#e8a48c" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M174 172 q13 -6 26 2" stroke="#e8a48c" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M112 212 q10 6 20 0" stroke="#ffb9c8" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.7"/>
+            <path d="M188 212 q10 6 20 0" stroke="#ffb9c8" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.7"/>
+            <path class="mouth" d="M150 224 q10 8 20 0" stroke="#c96f5f" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+          </g>
+
+          <!-- 思考：目光微抬 + 省略号气泡 -->
+          <g class="expr expr-thinking">
+            <g class="thought-bubble">
+              <ellipse cx="108" cy="82" rx="17" ry="13" fill="#ffffff" stroke="#f3c6d8" stroke-width="2"/>
+              <circle cx="124" cy="100" r="4.2" fill="#ffffff" stroke="#f3c6d8" stroke-width="1.5"/>
+              <circle cx="132" cy="109" r="2.6" fill="#ffffff" stroke="#f3c6d8" stroke-width="1.5"/>
+              <text x="108" y="87" text-anchor="middle" font-size="15" fill="#c08aa0">…</text>
+            </g>
+            <ellipse cx="133" cy="192" rx="10" ry="12" fill="#7a4a32"/>
+            <ellipse cx="187" cy="192" rx="10" ry="12" fill="#7a4a32"/>
+            <circle cx="130" cy="186" r="4" fill="#ffffff" opacity="0.95"/>
+            <circle cx="184" cy="186" r="4" fill="#ffffff" opacity="0.95"/>
+            <path d="M118 176 q14 -7 28 -1" stroke="#e8a48c" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M174 174 q14 -5 28 1" stroke="#e8a48c" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M150 226 q10 4 20 0" stroke="#c96f5f" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+          </g>
+
+          <!-- 说话：眼睛微亮 + 张开的小嘴 -->
+          <g class="expr expr-speaking">
+            <ellipse cx="133" cy="192" rx="10" ry="12" fill="#6f4026"/>
+            <ellipse cx="187" cy="192" rx="10" ry="12" fill="#6f4026"/>
+            <circle cx="136" cy="187" r="4.5" fill="#ffffff" opacity="0.98"/>
+            <circle cx="190" cy="187" r="4.5" fill="#ffffff" opacity="0.98"/>
+            <path d="M121 174 q13 -8 26 -2" stroke="#e8a48c" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M173 172 q13 -6 26 2" stroke="#e8a48c" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M112 212 q10 6 20 0" stroke="#ffb9c8" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.75"/>
+            <path d="M188 212 q10 6 20 0" stroke="#ffb9c8" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.75"/>
+            <ellipse class="mouth-open" cx="160" cy="226" rx="8" ry="9" fill="#a04a48" stroke="#7c3333" stroke-width="1.5"/>
+            <path d="M155 231 q5 4 10 0 q-5 3 -10 0 z" fill="#f28b8b"/>
+            <!-- 声波小弧 -->
+            <path d="M184 218 q6 4 0 9 M186 216 q9 6 0 13" stroke="#f9a8c8" stroke-width="2" fill="none" stroke-linecap="round"/>
+          </g>
+
+          <!-- 开心：眯眼笑 + 大笑容 + 腮红 -->
+          <g class="expr expr-happy">
+            <path d="M121 194 q12 -12 24 0" stroke="#7a4a32" stroke-width="4" fill="none" stroke-linecap="round"/>
+            <path d="M175 194 q12 -12 24 0" stroke="#7a4a32" stroke-width="4" fill="none" stroke-linecap="round"/>
+            <path d="M108 210 q12 8 24 0" stroke="#ff9db8" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.85"/>
+            <path d="M188 210 q12 8 24 0" stroke="#ff9db8" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.85"/>
+            <path d="M142 222 q18 15 36 0" stroke="#c96f5f" stroke-width="4" fill="none" stroke-linecap="round"/>
+            <path d="M140 220 q-5 -3 -8 -8 M180 220 q5 -3 8 -8" stroke="#c96f5f" stroke-width="3" fill="none" stroke-linecap="round"/>
+          </g>
+        </svg>
+
+        <!-- 表情状态徽标 -->
+        <div id="state-badge" class="state-badge" aria-live="polite">
+          <span class="dot"></span><span id="state-text">默认</span>
+        </div>
+      </div>
+      <p class="portrait-caption">TA 一直在等你～ 说点什么吧 💗</p>
+    </section>
+
+    <!-- 对话区 -->
+    <section class="chat-panel" aria-label="聊天窗口">
+      <header class="chat-header">
+        <h1>Virtual Being</h1>
+        <span class="online"><i></i> 在线陪伴中</span>
+      </header>
+
+      <div id="messages" class="messages" aria-live="polite">
+        <div class="msg bot">
+          <div class="bubble">嗨～我是只属于你的温柔伙伴，今天想聊点什么呢？(´｡• ᵕ •｡`)</div>
+        </div>
+      </div>
+
+      <form id="chat-form" class="input-bar" autocomplete="off">
+        <textarea id="input" rows="1" placeholder="和 TA 说点什么吧…（Enter 发送，Shift+Enter 换行）" aria-label="消息输入框"></textarea>
+        <button type="button" id="voice-btn" class="voice-btn" title="按住说话" aria-label="按住说话（录音发送语音）">🎙</button>
+        <button type="submit" id="send-btn">发送</button>
+      </form>
+      <div id="voice-hint" class="voice-hint">按住 🎙 说话，松开发送</div>
+    </section>
+  </main>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
