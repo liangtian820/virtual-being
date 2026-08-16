@@ -25,6 +25,7 @@ from app.memory.embeddings import OllamaEmbedder
 from app.memory.long_term_memory import LongTermMemory
 from app.memory.session_memory import SessionMemory
 from app.persona.prompts import build_system_prompt
+from app.plugins.registry import registry as tool_registry
 from app.tools.tool_specs import get_tool_specs
 
 # 知识查询意图关键词（起步版简单规则；后续可换模型判断）
@@ -612,6 +613,9 @@ class PersonaAgent:
                     return "错误：缺少搜索关键词"
                 from app.tools.web_search import search_text
                 return search_text(query)
+            # 插件/MCP 工具：未命中的内置名交由注册表分发（可插拔工具来源）
+            if tool_registry.has(name):
+                return tool_registry.call(name, arguments)
             return f"错误：未知工具 {name}"
         except Exception as exc:  # 任何工具执行异常都如实返回，不编造结果
             return f"错误：工具执行失败 {exc}"
@@ -658,6 +662,10 @@ class PersonaAgent:
         """
         try:
             tools = get_tool_specs()
+            # 插件/MCP 工具（迭代 5，M6.3）：合并注册表 schema，工具可插拔
+            ext_tools = tool_registry.schemas()
+            if ext_tools:
+                tools = list(tools) + ext_tools
             stage1 = [
                 {"role": "system", "content": self._TOOL_USE_GUIDANCE},
             ]
