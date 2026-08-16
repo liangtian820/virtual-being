@@ -3,8 +3,21 @@
 从环境变量读取，支持 .env 文件（通过 python-dotenv 或手动加载）。
 """
 from dataclasses import dataclass, field
+import json
 import os
 from typing import Optional
+
+
+def _parse_mcp_servers(raw: str) -> list:
+    """解析 MCP_SERVERS JSON；非法/空返回 []（不抛异常）。"""
+    raw = (raw or "").strip()
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
 
 
 def _load_dotenv() -> None:
@@ -40,6 +53,13 @@ class Config:
     # 通用离线测试套件在 conftest 中关闭（保持 mock LLM 确定性），工具调用专项测试显式开启。
     tool_calling_enabled: bool = field(
         default_factory=lambda: os.getenv("TOOL_CALLING_ENABLED", "1") == "1"
+    )
+    # M6.3（迭代 5）：MCP 服务器配置（JSON 列表）。每项：
+    # {"serverName": "obsidian", "url": "http://127.0.0.1:27123/mcp/",
+    #  "headers": {"Authorization": "Bearer <token>"}, "prefix": "obsidian"}
+    # 服务器不可达不阻断启动（failOnStartupError: false 语义）。
+    mcp_servers: list = field(
+        default_factory=lambda: _parse_mcp_servers(os.getenv("MCP_SERVERS", ""))
     )
     # M4.3/M4.4：语音链路专用 LLM 模型（默认 llama3.2:3b——用户已决策 <5s 优先；
     # 文本链路不受影响；可设 VOICE_LLM_MODEL 覆盖为 qwen2.5:7b 等）

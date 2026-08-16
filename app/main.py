@@ -79,6 +79,15 @@ async def lifespan(_app: FastAPI):
                   f"size={asr._model_size}, device={dev}）")
         except Exception as exc:
             print(f"[startup] ASR 预加载失败（首个请求将按需加载）: {exc}")
+    # M6.3（迭代 5）：注册配置的 MCP 服务器工具（插件化入口；服务器不可达不阻断）
+    try:
+        from app.plugins.registry import registry as _tool_registry
+        from app.plugins.mcp_loader import register_configured_mcp_servers
+        n = register_configured_mcp_servers(_tool_registry)
+        if n:
+            print(f"[startup] MCP 工具注册完成：{n} 个（{CONFIG.mcp_servers}）")
+    except Exception as exc:
+        print(f"[startup] MCP 注册失败（不影响服务）: {exc}")
     threading.Thread(target=_prewarm_ollama, daemon=True, name="ollama-prewarm").start()
     yield
 

@@ -669,6 +669,16 @@ class PersonaAgent:
             stage1 = [
                 {"role": "system", "content": self._TOOL_USE_GUIDANCE},
             ]
+            # M6.3：外部 MCP/插件工具提示（帮助 7B 识别带前缀的工具，如 obsidian_ 开头）
+            ext_names = [n for n in tool_registry.names() if "_" in n and tool_registry.has(n)]
+            if ext_names:
+                prefix_hint = "、".join(sorted({n.split("_", 1)[0] for n in ext_names}))
+                stage1.append({
+                    "role": "system",
+                    "content": (f"另有来自外部服务器的工具（前缀 {prefix_hint}_）："
+                                "当用户提到对应领域（如知识库/笔记/Obsidian 文档）时，"
+                                "优先调用这些工具获取真实数据，不要凭空编造。"),
+                })
             if history:
                 # M6.2：注入最近会话历史（不含当前输入），支持多轮指代（如『那明天呢』）
                 stage1.extend(history)
