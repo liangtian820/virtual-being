@@ -96,7 +96,9 @@ body::before {
  * ============================================================ */
 .stage {
   position: relative;
-  z-index: 1;
+  /* 注意：不能给 .stage 设置 z-index（会创建 stacking context，把抽屉/立绘浮层的
+     z-index:50/60 困在其内，导致遮罩 .drawer-mask(z:45，body 直接子级) 盖住抽屉内容——
+     M5.6 根因）。stage 无 z-index 时仍按文档顺序绘制在背景(::before, z:0)之上。 */
   display: flex;
   gap: 22px;
   align-items: stretch;
@@ -586,6 +588,12 @@ body::before {
   width: var(--drawer-width);
   border-radius: var(--radius-lg) 0 0 var(--radius-lg);
   box-shadow: -14px 0 40px rgba(190, 148, 168, 0.28);
+  /* M5.6：抽屉内容必须清晰可读 —— 背景实化（0.97 不透光），backdrop-filter 显式置 none
+     （覆盖 .panels 基础规则的 blur；半透明+blur 曾导致文字/列表透光模糊，
+     0.97 实底已无需毛玻璃，同时规避无 GPU 渲染差异） */
+  background: rgba(255, 255, 255, 0.97);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   min-height: 0;
 }
 .panels.open .panels-tabs {
@@ -696,7 +704,7 @@ body::before {
   gap: 9px;
   padding: 10px 12px;
   border-radius: 15px;
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.97); /* M5.6：条目实底，文字清晰 */
   border: 1px solid rgba(226, 168, 186, 0.24);
   font-size: 13px;
   line-height: 1.55;
@@ -750,7 +758,7 @@ body::before {
   padding: 26px 14px;
   text-align: center;
   font-size: 12.5px;
-  color: var(--muted);
+  color: #6e667e; /* M5.6：空态文案加深，对比度达标（>4.5:1） */
   line-height: 1.75;
 }
 .panel-hint {
@@ -758,7 +766,7 @@ body::before {
   padding: 2px 14px 10px;
   min-height: 1.2em;
   font-size: 12px;
-  color: var(--muted);
+  color: #6e667e;
   text-align: center;
 }
 .panel-hint.error { color: #c76b6b; }
@@ -778,7 +786,7 @@ body::before {
   font: inherit;
   font-size: 13px;
   outline: none;
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.98); /* M5.6：输入框实底 */
 }
 .panel-form input:focus { border-color: var(--rose); box-shadow: 0 0 0 4px rgba(231, 159, 181, 0.15); }
 .panel-form button {
@@ -803,9 +811,8 @@ body::before {
   position: fixed;
   inset: 0;
   z-index: 45;
-  background: rgba(63, 63, 85, 0.26);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  background: rgba(63, 63, 85, 0.32);
+  /* M5.6：遮罩只压暗不模糊（去掉 backdrop-filter），不影响抽屉内容可读性 */
 }
 .drawer-mask[hidden] { display: none; }
 
@@ -836,10 +843,9 @@ body::before {
   height: auto;
   padding: 12px;
   border-radius: 30px;
-  background: var(--card);
+  background: rgba(255, 255, 255, 0.96); /* M5.6：浮层实底，立绘清晰 */
   border: 1px solid var(--card-border);
   box-shadow: var(--shadow-card);
-  backdrop-filter: blur(18px);
 }
 .portrait-panel.expanded .portrait { display: block; }
 .portrait-panel.expanded .portrait-caption { display: block; }
