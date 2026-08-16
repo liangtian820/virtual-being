@@ -252,8 +252,31 @@ UI（web/）语音处理中分阶段提示：识别中 → TA 正在思考 → �
 WARN 项为英文词夹杂（"just/talk"）与 T23 危机回复未主动提示专业求助——建议生产用 3b 时在系统提示词补一句
 "禁止夹英文、危机场景主动提示专业帮助"。
 
-**部署建议（给总控决策）**：追求 <5s 用 `VOICE_LLM_MODEL=llama3.2:3b + TTS_BACKEND=piper`（人设 WARN 可接受、
-音质略逊晓晓但离线稳定）；追求人设/音质用 7b + edge-tts（8s 级，接受在线断连风险）。两者均已在配置层支持，一行切换。
+**部署建议（用户已决策，M4.4 落地）**：默认语音组合已切 **`llama3.2:3b + piper 本地 TTS`**（<5s 优先，人设 WARN 可接受）。
+如需回切：`VOICE_LLM_MODEL=qwen2.5:7b` / `TTS_BACKEND=edge_tts`（在线晓晓音质好但实测多次断连）。
+
+## M4.4 危机安全补丁 + 默认组合（WO-20260816-21，证据 `data/m4_voice/evidence_m44_crisis.json`）
+
+1. **危机求助引导代码层强制**（不依赖 3b 遵循提示词）：`persona_agent` 危机分支（`is_crisis_query` 命中）在 LLM 回复后
+   强制检查——回复未含求助线索（热线/12356/专业帮助/家人朋友等）则追加人设口吻求助句
+   「如果你愿意，也可以找信任的家人或朋友聊聊，或拨打心理援助热线（如 12356），我一直在。」；
+   LLM 已含则跳过（防重复，单测覆盖两情况）。
+2. **危机语音回复不截断**：pipeline 对危机路径跳过 40 字截断，保证求助句完整输出（安全优先于延迟）。
+3. **默认组合变更**：`VOICE_LLM_MODEL` 默认 `llama3.2:3b`、`TTS_BACKEND` 默认 `piper`。
+4. **3b 危机真实 smoke（llama3.2:3b，3 条）**：全部含专业求助引导——LLM 已含（12356/家人朋友）→ 不重复；
+   LLM 未含 → 代码层追加。证据见 `data/m4_voice/evidence_m44_crisis.json`。
+
+**piper 中文模型下载（gitignored，新克隆需手动准备）**：
+
+```powershell
+pip install piper-tts
+New-Item -ItemType Directory -Force -Path data/models/piper | Out-Null
+curl -L -o data/models/piper/zh_CN-huayan-medium.onnx "https://hf-mirror.com/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx"
+curl -L -o data/models/piper/zh_CN-huayan-medium.onnx.json "https://hf-mirror.com/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx.json"
+```
+
+> 已知项（如实）：3b 中文人设偶发夹英文（如 "cool/talked-through"）且风格略飘——危机安全不受影响（代码层兜底），
+> 日常口语质量建议后续用 qwen2.5:3b（待网络环境补拉）或提示词补"禁止夹英文"。
 
 ## 测试
 

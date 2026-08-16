@@ -117,6 +117,30 @@ def is_crisis_query(text: str) -> bool:
     return any(kw in text for kw in CRISIS_KEYWORDS)
 
 
+# M4.4（WO-20260816-21）：危机安全补丁——代码层强制专业求助引导句。
+# 不依赖模型（尤其 3b）是否遵循提示词：LLM 回复后若不含求助线索则强制追加，
+# 保证危机命中输出必有专业求助引导（安全红线，人设口吻温柔不突兀）。
+_CRISIS_HELP_SUFFIX = (
+    "如果你愿意，也可以找信任的家人或朋友聊聊，或拨打心理援助热线（如 12356），我一直在。"
+)
+# 求助线索关键词（LLM 已含任一 → 视为已引导，不重复追加）
+_CRISIS_HELP_HINTS = (
+    "心理援助", "援助热线", "热线", "12356", "专业帮助", "专业人士",
+    "家人或朋友", "家人朋友", "找家人", "找朋友", "告诉家人",
+)
+
+
+def ensure_crisis_help(reply: str) -> str:
+    """危机路径：确保回复含专业求助引导（代码层强制，防重复追加）。
+
+    :param reply: LLM 原始回复
+    :return: 已含求助线索则原样返回；否则在末尾追加人设口吻的求助句
+    """
+    if any(hint in reply for hint in _CRISIS_HELP_HINTS):
+        return reply
+    return f"{reply}\n{_CRISIS_HELP_SUFFIX}"
+
+
 class PersonaAgent:
     """人格 Agent：人设注入 + 会话记忆 + 意图路由 + Ollama 推理。"""
 
@@ -242,6 +266,10 @@ class PersonaAgent:
         finally:
             for kind, content in extracted:
                 self._memory_long.add(kind, content, source_session=sid)
+        # M4.4（WO-20260816-21）：危机路径代码层强制专业求助引导——
+        # 不依赖 3b 是否遵循提示词；LLM 已含求助线索则跳过（防重复）。
+        if is_crisis_query(user_input):
+            reply = ensure_crisis_help(reply)
         self._memory.append(sid, "assistant", reply)
         return reply, sid
 

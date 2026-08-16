@@ -484,21 +484,24 @@ def test_pipeline_max_tokens_mapping() -> None:
 
 
 def test_config_m43_voice_defaults() -> None:
-    """M4.3 默认：语音回复 ≤40 字；voice_llm_model 默认 None（跟随 ollama_model）。"""
+    """M4.4 默认：语音回复 ≤40 字；voice LLM=llama3.2:3b；TTS 后端=piper。"""
     from app.config import CONFIG
 
     assert CONFIG.voice_max_reply_chars == 40
-    assert CONFIG.voice_llm_model is None
+    assert CONFIG.voice_llm_model == "llama3.2:3b"
+    assert CONFIG.tts_backend == "piper"
 
 
 def test_pipeline_uses_voice_llm_model() -> None:
-    """pipeline 应把 llm_model 传给 PersonaAgent（voice 专用模型覆盖，文本链路不受影响）。"""
+    """pipeline 应把 llm_model 传给 PersonaAgent；默认用 voice_llm_model（3b），文本链路不受影响。"""
     from app.config import CONFIG
 
-    pipe = VoicePipeline(llm_model="qwen2.5:3b")
-    assert pipe._agent._model == "qwen2.5:3b"
+    pipe = VoicePipeline(llm_model="qwen2.5:7b")
+    assert pipe._agent._model == "qwen2.5:7b"
     pipe_default = VoicePipeline()
-    assert pipe_default._agent._model == CONFIG.ollama_model
+    assert pipe_default._agent._model == CONFIG.voice_llm_model == "llama3.2:3b"
+    # 文本链路（main /chat）用 PersonaAgent() 默认 ollama_model（7b），不受 voice 默认影响
+    assert CONFIG.ollama_model == "qwen2.5:7b"
 
 
 def test_pipeline_passes_max_tokens_to_agent(tmp_path) -> None:
@@ -597,3 +600,77 @@ def test_piper_tts_empty_text_raises(tmp_path) -> None:
     tts = PiperTTS(voice=object())
     with pytest.raises(ValueError):
         tts.synthesize("   ", str(tmp_path / "p.wav"))
+
+
+# ---------- M4.4：危机安全补丁（代码层强制求助引导） ----------
+
+
+def test_crisis_reply_forced_help_suffix(tmp_path, monkeypatch) -> None:
+    """危机命中且 LLM 未含求助线索时，代码层应强制追加专业求助引导句。"""
+    from app.agents.persona_agent import PersonaAgent, ensure_crisis_help
+    from app.memory.long_term_memory import LongTermMemory
+    from app.memory.session_memory import SessionMemory
+
+    agent = PersonaAgent(
+        memory=SessionMemory(),
+        long_memory=LongTermMemory(db_path=str(tmp_path / "crisis.db")),
+    )
+    monkeypatch.setattr(agent, "_call_ollama",
+                        lambda messages, max_tokens=None: "嗯嗯，我在呢，你很重要。想说什么都可以慢慢说。")
+    reply, _ = agent.chat("活着好没意思，感觉撑不下去了", session_id="crisis-1")
+    assert "心理援助热线（如 12356）" in reply
+    assert "家人或朋友" in reply
+    assert reply == ensure_crisis_help(reply)  # 幂等：再次调用不重复追加
+
+
+def test_crisis_reply_no_duplicate_when_llm_includes_help(tmp_path, monkeypatch) -> None:
+    """LLM 已含求助线索（热线）时，不应重复追加强制句。"""
+    from app.agents.persona_agent import PersonaAgent
+    from app.memory.long_term_memory import LongTermMemory
+    from app.memory.session_memory import SessionMemory
+
+    agent = PersonaAgent(
+        memory=SessionMemory(),
+        long_memory=LongTermMemory(db_path=str(tmp_path / "crisis2.db")),
+    )
+    with_help = "嗯嗯，我在呢。你可以拨打心理援助热线 12356，会有人认真听你说。"
+    monkeypatch.setattr(agent, "_call_ollama", lambda messages, max_tokens=None: with_help)
+    reply, _ = agent.chat("活着好没意思，感觉撑不下去了", session_id="crisis-2")
+    assert reply.count("12356") == 1  # 未重复
+    assert reply == with_help  # 原样返回
+
+
+def test_crisis_help_not_added_for_normal_input(tmp_path, monkeypatch) -> None:
+    """非危机输入不追加求助句。"""
+    from app.agents.persona_agent import PersonaAgent
+    from app.memory.long_term_memory import LongTermMemory
+    from app.memory.session_memory import SessionMemory
+
+    agent = PersonaAgent(
+        memory=SessionMemory(),
+        long_memory=LongTermMemory(db_path=str(tmp_path / "normal.db")),
+    )
+    monkeypatch.setattr(agent, "_call_ollama",
+                        lambda messages, max_tokens=None: "嗯嗯，今天也辛苦啦～")
+    reply, _ = agent.chat("今天好累", session_id="normal-1")
+    assert "心理援助热线" not in reply
+    assert reply == "嗯嗯，今天也辛苦啦～"
+
+
+def test_pipeline_crisis_reply_not_trimmed(tmp_path) -> None:
+    """危机路径下语音回复不应被长度约束截断（保证求助句完整，安全优先）。"""
+    long_reply = "嗯嗯，我在呢，你很重要。如果你愿意，也可以找信任的家人或朋友聊聊，" \
+                 "或拨打心理援助热线（如 12356），我一直在。"
+    fake_asr = WhisperASR(model=FakeWhisperModel("活着好没意思，感觉撑不下去了"))
+    pipe = VoicePipeline(
+        asr=fake_asr,
+        tts=EdgeTTS(tts_cls=FakeCommunicate, cache_dir=str(tmp_path / "tts_cache")),
+        agent=FakeAgent(long_reply),
+        reply_dir=str(tmp_path / "replies"),
+        max_reply_chars=20,  # 即使限制 20 字，危机也不截断
+    )
+    audio = tmp_path / "user.mp3"
+    audio.write_bytes(b"audio")
+    result = pipe.handle_audio(str(audio), session_id="crisis-voice")
+    assert result["reply"] == long_reply
+    assert "12356" in result["reply"]

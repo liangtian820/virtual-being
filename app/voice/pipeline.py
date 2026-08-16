@@ -13,7 +13,7 @@ import time
 import uuid
 from typing import Dict, Optional
 
-from app.agents.persona_agent import PersonaAgent
+from app.agents.persona_agent import PersonaAgent, is_crisis_query
 from app.config import CONFIG
 from app.voice.asr import WhisperASR
 from app.voice.tts import EdgeTTS, PiperTTS
@@ -108,7 +108,11 @@ class VoicePipeline:
         reply, sid = self._agent.chat(text, session_id, max_tokens=self._max_tokens)
         t2 = time.perf_counter()
         # M4.1：语音回复长度约束（截断只影响本次 TTS/返回文本，会话记忆保持完整回复）
-        reply_trimmed = self._trim_reply(reply, self._max_reply_chars)
+        # M4.4：危机路径安全优先——不截断，保证代码层强制追加的专业求助句完整输出
+        if is_crisis_query(text):
+            reply_trimmed = reply
+        else:
+            reply_trimmed = self._trim_reply(reply, self._max_reply_chars)
         t2b = time.perf_counter()
 
         os.makedirs(self._reply_dir, exist_ok=True)
