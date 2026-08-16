@@ -6,7 +6,8 @@
   <meta name="description" content="Virtual Being · 温柔治愈的二次元专属伙伴——Web 聊天界面（M5 形象）">
   <title>Virtual Being · 温柔治愈的专属伙伴</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='13' font-size='13'%3E%F0%9F%92%97%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/static/css/style.css">
+  <!-- 静态资源带版本号（?v=）：避免浏览器缓存旧版 js/css 与新页错配导致面板不显示；每次发布递增 -->
+  <link rel="stylesheet" href="/static/css/style.css?v=5.5">
 </head>
 <body>
   <div class="bg-blobs" aria-hidden="true">
@@ -204,7 +205,7 @@
         </div>
         <div class="panel-scroll">
           <ul id="plans-list" class="panel-list"></ul>
-          <div id="plans-empty" class="panel-empty">还没有保存的计划～ 对 TA 说『帮我规划周末学做饭』，再补一句『存下来』即可收藏</div>
+          <div id="plans-empty" class="panel-empty">还没有保存的计划～ 对 TA 说『帮我规划周末学做饭』，再补一句『存下来』即可收藏；<br>或者直接在对话里说『帮我规划…』，回复下方会出现步骤卡片</div>
         </div>
         <p id="plans-hint" class="panel-hint" role="status" aria-live="polite"></p>
       </div>
@@ -218,7 +219,7 @@
         </div>
         <div class="panel-scroll">
           <ul id="memory-list" class="panel-list"></ul>
-          <div id="memory-empty" class="panel-empty">TA 还在慢慢了解你～ 多和 TA 聊聊，TA 会记住重要的事</div>
+          <div id="memory-empty" class="panel-empty">TA 还在慢慢了解你～ 多和 TA 聊聊（比如介绍自己、说说喜好），TA 会记住重要的事</div>
         </div>
         <p id="memory-hint" class="panel-hint" role="status" aria-live="polite"></p>
       </div>
@@ -228,6 +229,6 @@
   <!-- M5.4：抽屉/立绘浮层遮罩（点击关闭） -->
   <div id="drawer-mask" class="drawer-mask" hidden></div>
 
-  <script src="/static/js/app.js"></script>
+  <script src="/static/js/app.js?v=5.5"></script>
 </body>
 </html>

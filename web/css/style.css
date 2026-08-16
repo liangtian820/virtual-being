@@ -3,6 +3,9 @@
  * M5.3 治愈系视觉（配色/圆角/毛玻璃/动效）+
  * M5.4 布局修复（聊天区 ≥520px 保底 / 面板抽屉化 / 立绘可折叠 / 1280·980 断点）
  * 说明：保留全部既有类名/ID 兼容（功能零变化）
+ * 【面板显示契约】.panel 全局 display:none（rail 态），仅在 .panels.open 下显示
+ *   .panels.open .panel.active —— 面板可见性依赖 JS 给 .panels 加 .open 类；
+ *   修改此处前请同步 app.js 的 openDrawer/closeDrawer 与 tab 点击逻辑。
  * ============================================================ */
 
 :root {
