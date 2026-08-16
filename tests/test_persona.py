@@ -114,7 +114,9 @@ def _capture_agent(tmp_path, long_memory: LongTermMemory, monkeypatch) -> tuple:
     captured = {}
 
     def fake_call(messages, max_tokens=None):
-        captured["sys"] = [m for m in messages if m["role"] == "system"]
+        sys_msgs = [m for m in messages if m["role"] == "system"]
+        captured.setdefault("sys_all", []).append(sys_msgs)  # 累积每次调用的 system 消息
+        captured["sys"] = sys_msgs
         return "嗯嗯，我在呢。"
 
     monkeypatch.setattr(agent, "_call_ollama", fake_call)
@@ -136,6 +138,7 @@ def test_knowledge_injection_prompt_requires_source_and_brevity(monkeypatch, tmp
     assert "来源" in knowledge_msg               # P2-2 来源标注要求
     assert "内置知识库" in knowledge_msg         # 内置库命中 → 提示词带来源上下文
     assert "不编造" in knowledge_msg
+    assert "回答末尾明确附上引用来源" in knowledge_msg   # M6 v2：完整引用句式
 
 
 def test_memory_injection_prompt_anti_fabrication(monkeypatch, tmp_path) -> None:
@@ -154,8 +157,8 @@ def test_memory_injection_prompt_anti_fabrication(monkeypatch, tmp_path) -> None
     assert "我这边好像没有那次的记录呢" in memory_msg
 
 
-def test_empty_memory_no_memory_injection(monkeypatch, tmp_path) -> None:
-    """T28 前提：空记忆库时不应注入任何记忆消息（不给 LLM 编造空间）。"""
+def test_empty_memory_injects_anti_fabrication_hint(monkeypatch, tmp_path) -> None:
+    """M6 v2（T28 代码层）：空记忆库时应注入『无历史记忆记录』防编造提示（不再依赖 system rules 兜底）。"""
     mem = LongTermMemory(db_path=str(tmp_path / "empty.db"))
     agent, captured = _capture_agent(tmp_path, mem, monkeypatch)
     try:
@@ -164,5 +167,55 @@ def test_empty_memory_no_memory_injection(monkeypatch, tmp_path) -> None:
         mem.close()
     sys_msgs = captured["sys"]
     assert not any("长期记忆" in m["content"] for m in sys_msgs)
-    # 空记忆时 LLM 只能依赖系统提示词的不编造规则（test_system_prompt_contains_anti_fabrication_rule 覆盖）
+    # 首条仍是系统提示词
     assert captured["sys"][0]["content"] == build_system_prompt()
+    # 空记忆防编造提示已常驻注入（QA 定位：原指引只在记忆注入 if 块内，空记忆时不注入）
+    assert any("历史记忆记录" in m["content"] for m in sys_msgs), "空记忆时应注入防编造提示"
+    empty_hint = next(m["content"] for m in sys_msgs if "历史记忆记录" in m["content"])
+    assert "我这边好像没有那次的记录呢" in empty_hint
+    assert "绝不虚构用户说过的话" in empty_hint
+
+
+def test_capability_boundary_hint_injected_on_normal_chat(monkeypatch, tmp_path) -> None:
+    """M6 v2（T16 代码层）：普通对话路径应注入能力边界强提示（超范围请求 → 做不到+说明边界+转向可做之事）。"""
+    mem = LongTermMemory(db_path=str(tmp_path / "boundary.db"))
+    agent, captured = _capture_agent(tmp_path, mem, monkeypatch)
+    try:
+        agent.chat("帮我把桌面这 100 个文件批量重命名", session_id="boundary-session")
+    finally:
+        mem.close()
+    sys_msgs = captured["sys"]
+    assert any("记住你的能力边界" in m["content"] for m in sys_msgs), "普通对话应注入能力边界强提示"
+    hint = next(m["content"] for m in sys_msgs if "记住你的能力边界" in m["content"])
+    assert "这个我还做不到哦" in hint
+    assert "操作电脑" in hint
+    assert "绝不假装已经做完了没做过的事" in hint
+
+
+def test_capability_boundary_hint_not_injected_on_capability_routes(monkeypatch, tmp_path) -> None:
+    """M6 v2：知识/计算意图分支不应注入能力边界强提示（避免干扰能力分支注入）。"""
+    mem = LongTermMemory(db_path=str(tmp_path / "routes.db"))
+    agent, captured = _capture_agent(tmp_path, mem, monkeypatch)
+    try:
+        agent.chat("什么是 RAG？", session_id="kb2-session")
+        agent.chat("3 加 5 等于多少", session_id="calc2-session")
+    finally:
+        mem.close()
+    kb_sys, calc_sys = captured["sys_all"][0], captured["sys_all"][1]
+    assert not any("记住你的能力边界" in m["content"] for m in kb_sys)
+    assert not any("记住你的能力边界" in m["content"] for m in calc_sys)
+    assert any("知识查询结果" in m["content"] for m in kb_sys)
+    assert any("计算结果" in m["content"] for m in calc_sys)
+
+
+def test_system_prompt_contains_example_dialogue_few_shot() -> None:
+    """M6 v2（T23/T16/T07 few-shot）：系统提示词应渲染【对话示例】段落，含危机/能力边界/焦虑示例。"""
+    prompt = build_system_prompt()
+    assert "【对话示例】" in prompt
+    # 危机 few-shot（T23）：温柔陪伴 + 专业求助引导
+    assert "拨打心理援助热线" in prompt
+    # 能力边界 few-shot（T16/R3）
+    assert "帮我删掉电脑里的这个文件夹" in prompt
+    # 焦虑建议 few-shot（T07）：具体可执行动作
+    assert "深呼吸" in prompt
+    assert "提前把自我介绍练两遍" in prompt
