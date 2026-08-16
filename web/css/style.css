@@ -1,25 +1,26 @@
 /* ============================================================
- * Virtual Being · Web 聊天界面样式（M5.3 治愈系视觉升级）
- * 风格：温柔治愈 · 暖白底 + 莫兰迪柔色 + 圆角卡片 + 轻毛玻璃 + 柔和动效
- * 说明：保留全部既有类名/ID 兼容（功能零变化，仅视觉重做）
+ * Virtual Being · Web 聊天界面样式
+ * M5.3 治愈系视觉（配色/圆角/毛玻璃/动效）+
+ * M5.4 布局修复（聊天区 ≥520px 保底 / 面板抽屉化 / 立绘可折叠 / 1280·980 断点）
+ * 说明：保留全部既有类名/ID 兼容（功能零变化）
  * ============================================================ */
 
 :root {
-  /* ---- 治愈系配色（莫兰迪柔色） ---- */
-  --bg: #fff9f5;            /* 暖白底 */
-  --bg-soft: #fbeef3;       /* 柔粉渐变辅色 */
-  --bg-lilac: #f4effa;      /* 浅紫渐变辅色 */
-  --card: rgba(255, 255, 255, 0.66);      /* 毛玻璃卡片 */
+  /* ---- 治愈系配色（莫兰迪柔色，M5.3） ---- */
+  --bg: #fff9f5;
+  --bg-soft: #fbeef3;
+  --bg-lilac: #f4effa;
+  --card: rgba(255, 255, 255, 0.66);
   --card-solid: #fffdfc;
   --card-border: rgba(226, 168, 186, 0.30);
-  --ink: #3f3f55;           /* 深灰蓝紫 · 主文字 */
-  --muted: #9a93a8;         /* 次级文字 */
-  --rose: #e79fb5;          /* 莫兰迪粉 · 主强调 */
+  --ink: #3f3f55;
+  --muted: #9a93a8;
+  --rose: #e79fb5;
   --rose-deep: #cf8aa3;
   --rose-soft: #f6d7e1;
-  --lilac: #b4a6d8;         /* 莫兰迪浅紫 */
+  --lilac: #b4a6d8;
   --lilac-soft: #e6e0f6;
-  --cream: #f3e2c8;         /* 莫兰迪奶黄 */
+  --cream: #f3e2c8;
   --success: #8fbfa3;
   --danger: #dd8a8a;
   --bubble-bot: rgba(255, 255, 255, 0.85);
@@ -30,6 +31,12 @@
   --radius-md: 16px;
   --radius-sm: 12px;
   --font: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "Noto Sans SC", system-ui, -apple-system, sans-serif;
+
+  /* ---- M5.4 布局尺寸 ---- */
+  --chat-min-width: 520px;      /* 聊天区保底宽度（不被面板/立绘挤压） */
+  --rail-width: 64px;           /* 面板/立绘收起后的图标窄条宽度 */
+  --drawer-width: min(340px, 92vw);
+  --portrait-width: clamp(280px, 30vw, 340px);
 }
 
 * { box-sizing: border-box; }
@@ -65,7 +72,6 @@ body::before {
   to   { opacity: 1; }
 }
 
-/* 装饰漂浮光斑（纯装饰，aria-hidden） */
 .bg-blobs { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
 .blob {
   position: absolute;
@@ -82,29 +88,51 @@ body::before {
   to   { transform: translate(28px, -24px) scale(1.07); }
 }
 
-/* ---------- 主布局：居中留白三列 ---------- */
+/* ============================================================
+ * 主布局（M5.4）：立绘 + 聊天(≥520px 保底) + 面板 rail
+ * ============================================================ */
 .stage {
   position: relative;
   z-index: 1;
   display: flex;
   gap: 22px;
   align-items: stretch;
-  max-width: 1200px;
+  max-width: 1280px;
   min-height: 100vh;
   margin: 0 auto;
   padding: 28px 24px;
 }
 
 /* ============================================================
- * 立绘区（TA 的 C 位感：渐变光晕描边 + 呼吸）
+ * 立绘区（M5.4：大屏常驻 / 中屏收成 rail 图标，点击浮层展开）
  * ============================================================ */
 .portrait-panel {
-  flex: 0 0 356px;
+  flex: 0 0 var(--portrait-width);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
+
+/* 立绘折叠按钮（仅 rail 模式显示，默认隐藏） */
+.portrait-toggle {
+  display: none;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--card-border);
+  border-radius: 50%;
+  background: var(--card);
+  backdrop-filter: blur(12px);
+  color: var(--rose-deep);
+  font-size: 20px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-soft);
+  transition: transform 0.2s ease;
+}
+.portrait-toggle:hover { transform: scale(1.08); }
 
 .portrait {
   position: relative;
@@ -168,7 +196,7 @@ body::before {
   50%      { opacity: 1; }
 }
 
-/* ---------- 表情状态切换（柔和过渡） ---------- */
+/* ---------- 表情状态切换 ---------- */
 .expr {
   opacity: 0;
   visibility: hidden;
@@ -225,11 +253,11 @@ body::before {
 }
 
 /* ============================================================
- * 对话区（主聊天区居中留白，毛玻璃卡片）
+ * 对话区（M5.4：min-width 保底 520px，永不被挤压）
  * ============================================================ */
 .chat-panel {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: var(--chat-min-width);
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-lg);
@@ -294,7 +322,6 @@ body::before {
   border-radius: 999px;
 }
 
-/* 消息入场过渡（TA/你 区分） */
 .msg {
   display: flex;
   animation: msg-in 0.32s ease both;
@@ -338,7 +365,6 @@ body::before {
   box-shadow: none;
 }
 
-/* 对话内规划步骤卡片 */
 .plan-card {
   margin-top: 10px;
   border-radius: 16px;
@@ -487,10 +513,10 @@ body::before {
 .voice-status.visible { opacity: 1; }
 
 /* ============================================================
- * 能力面板（可折叠侧栏，毛玻璃）
+ * 能力面板（M5.4：默认 rail 图标条，展开为浮层抽屉，不压缩聊天区）
  * ============================================================ */
 .panels {
-  flex: 0 0 304px;
+  flex: 0 0 var(--rail-width);
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-lg);
@@ -501,40 +527,28 @@ body::before {
   -webkit-backdrop-filter: blur(18px);
   overflow: hidden;
   min-height: 420px;
-  transition: flex-basis 0.35s ease, min-width 0.35s ease;
+  transition: width 0.3s ease, right 0.3s ease;
 }
 
-/* 折叠态：收成窄条（只留 tab 图标） */
-.panels.collapsed { flex-basis: 64px; min-width: 64px; }
-.panels.collapsed .tab { font-size: 0; padding: 10px 4px; }
-.panels.collapsed .panel,
-.panels.collapsed .panel-head,
-.panels.collapsed .panel-scroll,
-.panels.collapsed .panel-form,
-.panels.collapsed .panel-hint,
-.panels.collapsed .seg { display: none; }
-.panels.collapsed .panels-tabs { flex-direction: column; gap: 6px; padding: 10px 6px; border-bottom: none; }
-.panels.collapsed .tab { border-radius: 12px; flex: none; }
-.panels.collapsed .panels-toggle { transform: rotate(180deg); }
-
+/* rail 态：只显示竖排 tab 图标，隐藏面板内容 */
 .panels-tabs {
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 10px 10px 0 10px;
-  border-bottom: 1px solid rgba(226, 168, 186, 0.22);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 12px 8px;
 }
 .tab {
-  flex: 1;
   border: none;
   background: transparent;
-  padding: 9px 6px;
-  border-radius: 12px 12px 0 0;
+  padding: 12px 6px;
+  border-radius: 12px;
   font: inherit;
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--muted);
   cursor: pointer;
   transition: background 0.22s ease, color 0.22s ease;
+  writing-mode: vertical-rl; /* rail 态竖排文字 */
 }
 .tab:hover { background: rgba(231, 159, 181, 0.10); color: var(--rose-deep); }
 .tab.active {
@@ -543,23 +557,51 @@ body::before {
   font-weight: 700;
 }
 
-/* 折叠按钮 */
 .panels-toggle {
   border: 1px solid rgba(226, 168, 186, 0.4);
   background: rgba(255, 255, 255, 0.85);
   color: var(--rose-deep);
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   font-size: 12px;
   cursor: pointer;
+  align-self: center;
+  margin-top: auto;
   flex-shrink: 0;
   transition: transform 0.3s ease, background 0.2s ease;
 }
 .panels-toggle:hover { background: var(--rose-soft); }
 
+/* 抽屉打开态（≥980px）：右侧浮层，覆盖聊天区，不占文档流 */
+.panels.open {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  width: var(--drawer-width);
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+  box-shadow: -14px 0 40px rgba(190, 148, 168, 0.28);
+  min-height: 0;
+}
+.panels.open .panels-tabs {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 12px 0;
+}
+.panels.open .tab {
+  flex: 1;
+  writing-mode: horizontal-tb;
+  padding: 9px 6px;
+  border-radius: 12px 12px 0 0;
+}
+.panels.open .panels-toggle { margin-top: 0; margin-left: auto; }
+
+/* 面板内容：rail 态隐藏，抽屉态显示 */
 .panel { display: none; flex: 1; flex-direction: column; min-height: 0; }
-.panel.active { display: flex; }
+.panels.open .panel.active { display: flex; }
 
 .panel-head {
   display: flex;
@@ -752,21 +794,104 @@ body::before {
 .panel-form button:hover { box-shadow: 0 4px 14px rgba(180, 140, 190, 0.4); }
 
 /* ============================================================
- * 响应式：窄屏堆叠 + 面板抽屉式置底
+ * 遮罩（抽屉 / 立绘浮层共用，点击关闭）
  * ============================================================ */
-@media (max-width: 1180px) {
-  .panels { flex-basis: 272px; }
+.drawer-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: rgba(63, 63, 85, 0.26);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
 }
+.drawer-mask[hidden] { display: none; }
+
+/* ============================================================
+ * 断点（M5.4）：
+ *   ≥1280px  立绘 + 聊天(≥520) + 面板 rail（抽屉）
+ *   980-1280 立绘收成 rail（点击浮层展开）+ 聊天 + 面板 rail（抽屉）
+ *   <980px   单栏：聊天全宽（去掉 520 保底），立绘左上小圆钮，面板底部 tab 条
+ * ============================================================ */
+
+/* 中屏：立绘收成 rail（980-1280px） */
+@media (max-width: 1280px) {
+  .stage { padding: 20px 18px; gap: 16px; }
+  .portrait-panel { flex-basis: var(--rail-width); }
+  .portrait { display: none; }
+  .portrait-caption { display: none; }
+  .portrait-toggle { display: inline-flex; }
+}
+
+/* 立绘浮层展开态（rail 模式下点击 toggle 后，全屏居中展示大立绘） */
+.portrait-panel.expanded {
+  position: fixed;
+  top: 8vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  width: min(380px, 92vw);
+  height: auto;
+  padding: 12px;
+  border-radius: 30px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(18px);
+}
+.portrait-panel.expanded .portrait { display: block; }
+.portrait-panel.expanded .portrait-caption { display: block; }
+
+/* 窄屏：单栏 */
 @media (max-width: 980px) {
-  .stage { flex-direction: column; padding: 18px 16px; gap: 18px; }
-  .portrait-panel { flex: none; }
-  .portrait { max-width: 300px; }
-  .messages { max-height: 44vh; }
+  .stage { flex-direction: column; padding: 14px 12px; }
+  .chat-panel { min-width: 0; } /* 单栏全宽，520 保底仅桌面有效 */
+  .messages { max-height: 50vh; }
   .bubble { max-width: 88%; }
-  .panels { flex: none; width: 100%; min-height: 0; max-height: 62vh; }
-  .panels.collapsed { flex-basis: auto; min-width: 0; height: 56px; }
-  .panels.collapsed .panels-tabs { flex-direction: row; }
-  .panel-scroll { max-height: 40vh; }
+
+  /* 立绘：左上小圆钮（浮层展开） */
+  .portrait-panel {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    left: auto;
+    z-index: 40;
+    width: 50px;
+    height: 50px;
+    flex: none;
+    border-radius: 50%;
+    padding: 0;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    box-shadow: var(--shadow-soft);
+  }
+  .portrait-toggle { display: inline-flex; width: 44px; height: 44px; border: none; background: transparent; box-shadow: none; }
+  .portrait-panel.expanded { left: 50%; right: auto; top: 8vh; width: min(360px, 92vw); height: auto; padding: 12px; border-radius: 30px; }
+
+  /* 面板：底部 tab 条 → 抽屉从底部升起 */
+  .panels {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 35;
+    width: 100%;
+    flex: none;
+    min-height: 0;
+    height: 54px;
+    border-radius: 18px 18px 0 0;
+  }
+  .panels-tabs { flex-direction: row; align-items: center; gap: 4px; padding: 8px 10px; }
+  .tab { flex: 1; writing-mode: horizontal-tb; padding: 8px 4px; border-radius: 10px; }
+  .panels-toggle { display: none; } /* 窄屏无需折叠钮（tab 即入口） */
+  .panels.open {
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    height: min(78vh, 560px);
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -14px 40px rgba(190, 148, 168, 0.28);
+  }
+  .panels.open .panels-tabs { padding: 10px 12px 0; }
 }
 
 /* ============================================================
@@ -777,5 +902,5 @@ body::before {
   .blob, .character, .hair-back, .bangs, .heart, .spark,
   .thought-bubble, .portrait::before, .voice-btn.recording,
   .msg, .dot { animation: none !important; }
-  .expr, .msg, .panels, .state-badge { transition: none !important; }
+  .expr, .msg, .panels, .state-badge, .portrait-panel { transition: none !important; }
 }

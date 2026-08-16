@@ -698,9 +698,12 @@
     stopCurrentAudio();
   });
 
-  /* ---------- M5.2：能力面板事件 ---------- */
+  /* ---------- M5.2：能力面板事件（M5.4：点击 tab 打开抽屉） ---------- */
   for (const tab of TABS) {
-    tab.addEventListener("click", () => switchPanel(tab.dataset.panel));
+    tab.addEventListener("click", () => {
+      switchPanel(tab.dataset.panel);
+      openDrawer();
+    });
   }
   for (const btn of SCHED_SEG_BTNS) {
     btn.addEventListener("click", () => {
@@ -720,19 +723,82 @@
   MEMORY_REFRESH.addEventListener("click", () => loadMemory());
   MEMORY_CLEAR.addEventListener("click", clearMemory);
 
-  /* ---------- M5.3：面板折叠（纯布局行为，业务逻辑不变） ---------- */
+  /* ---------- M5.4：面板抽屉 + 立绘浮层（纯布局行为，业务逻辑不变） ---------- */
   const PANELS_EL = document.querySelector(".panels");
   const PANELS_TOGGLE = document.getElementById("panels-toggle");
+  const DRAWER_MASK = document.getElementById("drawer-mask");
+  const PORTRAIT_PANEL = document.querySelector(".portrait-panel");
+  const PORTRAIT_TOGGLE = document.getElementById("portrait-toggle");
+
+  function setMask(show) {
+    if (!DRAWER_MASK) return;
+    if (show) DRAWER_MASK.removeAttribute("hidden");
+    else DRAWER_MASK.setAttribute("hidden", "");
+  }
+
+  function openDrawer() {
+    if (!PANELS_EL) return;
+    PANELS_EL.classList.add("open");
+    setMask(true);
+    if (PANELS_TOGGLE) {
+      PANELS_TOGGLE.setAttribute("aria-expanded", "true");
+      PANELS_TOGGLE.title = "收起面板";
+    }
+  }
+
+  function closeDrawer() {
+    if (!PANELS_EL) return;
+    PANELS_EL.classList.remove("open");
+    setMask(false);
+    if (PANELS_TOGGLE) {
+      PANELS_TOGGLE.setAttribute("aria-expanded", "false");
+      PANELS_TOGGLE.title = "展开面板";
+    }
+  }
+
+  function setPortraitExpanded(force) {
+    if (!PORTRAIT_PANEL || !PORTRAIT_TOGGLE) return;
+    let expanded;
+    if (force === undefined) {
+      PORTRAIT_PANEL.classList.toggle("expanded");
+      expanded = PORTRAIT_PANEL.classList.contains("expanded");
+    } else {
+      PORTRAIT_PANEL.classList.toggle("expanded", !!force);
+      expanded = !!force;
+    }
+    PORTRAIT_TOGGLE.setAttribute("aria-expanded", expanded ? "true" : "false");
+    PORTRAIT_TOGGLE.title = expanded ? "收起立绘" : "展开立绘";
+    setMask(expanded);
+    if (expanded) closeDrawer(); // 立绘浮层与抽屉互斥
+  }
+
   if (PANELS_EL && PANELS_TOGGLE) {
     PANELS_TOGGLE.addEventListener("click", () => {
-      const collapsed = PANELS_EL.classList.toggle("collapsed");
-      PANELS_TOGGLE.setAttribute("aria-expanded", collapsed ? "false" : "true");
-      PANELS_TOGGLE.title = collapsed ? "展开面板" : "收起面板";
+      if (PANELS_EL.classList.contains("open")) closeDrawer();
+      else openDrawer();
     });
   }
+  if (PORTRAIT_TOGGLE) {
+    PORTRAIT_TOGGLE.addEventListener("click", () => {
+      if (PORTRAIT_PANEL.classList.contains("expanded")) setPortraitExpanded(false);
+      else setPortraitExpanded(true);
+    });
+  }
+  if (DRAWER_MASK) {
+    DRAWER_MASK.addEventListener("click", () => {
+      closeDrawer();
+      setPortraitExpanded(false);
+    });
+  }
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") {
+      closeDrawer();
+      setPortraitExpanded(false);
+    }
+  });
 
   /* ---------- 启动 ---------- */
   initVoice();
   INPUT.focus();
-  switchPanel("schedule"); // 默认打开日程面板（懒加载今日日程）
+  switchPanel("schedule"); // 默认日程面板激活（数据预加载，抽屉保持收起）
 })();
