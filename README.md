@@ -2,8 +2,8 @@
 
 一个**能沟通的专属 Agent**：温柔治愈的二次元角色，通过连接多个 Agent 构建，既能陪伴聊天、也能当助手干活。
 
-> **GitHub 仓库（占位）**：`https://github.com/<你的用户名>/virtual-being`
-> 当前为本地 git 仓库，尚未 push。待项目所有者确认后另行创建并推送，README 中的链接与徽章届时再补充。
+> **GitHub 仓库**：`https://github.com/liangtian820/virtual-being`
+> 当前为本地 git 仓库，等待首次推送（README 徽章在推送后补充）。
 
 ## 当前状态：M6（打磨与展示）
 
