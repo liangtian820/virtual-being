@@ -6,3 +6,5 @@ __pycache__/
 dist/
 build/
 *.log
+# M4 语音：生成的音频与验证证据不入库（可本地复现）
+data/

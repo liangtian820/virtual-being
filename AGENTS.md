@@ -17,15 +17,17 @@
 - `app/persona/` — 角色卡与人设提示词（灵魂之魂）
 - `app/agents/` — Agent 层（人格 Agent，M2 加能力 Agent）
 - `app/memory/` — 记忆模块（会话内 → 长期）
+- `app/voice/` — 语音模块（M4：asr.py 本地识别 / tts.py edge-tts / pipeline.py 语音链路）
 - `app/main.py` — FastAPI 服务入口
-- `scripts/run_demo.py` — CLI 对话演示
+- `scripts/run_demo.py` — CLI 文本对话演示
+- `scripts/run_voice_demo.py` — CLI 语音对话演示（M4）
 - `tests/` — pytest 测试（离线，mock 外部服务）
 
 ## 开发命令
 
 - 安装：`pip install -r requirements.txt`
 - 运行服务：`uvicorn app.main:app --reload --port 8000`
-- CLI 演示：`python -m scripts.run_demo`
+- CLI 演示：`python -m scripts.run_demo`（文本）/ `python -m scripts.run_voice_demo --self-test`（语音）
 - 测试：`python -m pytest -q`（离线）
 
 ## 编码规范
@@ -48,7 +50,7 @@
 
 - 产品定义：`30 · 项目/AI虚拟人物/产品定义.md`（知识库）
 - 里程碑：M1 文本灵魂 → M2 能力扩展 → M3 专属记忆 → M4 语音 → M5 形象 → M6 打磨展示
-- 当前阶段：M1（文本灵魂：能聊天、人设稳定）
+- 当前阶段：M4（语音：说→听→回→播，ASR=Whisper 本地、TTS=edge-tts 中文女声）
 
 ## 人设速览（详见 app/persona/character_card.py）
 
