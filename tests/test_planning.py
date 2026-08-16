@@ -1,8 +1,19 @@
-"""能力 Agent（规划助手）的离线测试：mock LLM 输出，不调用 Ollama。"""
+"""能力 Agent（规划助手）的离线测试：mock LLM 输出，不调用 Ollama。
+
+M2.2（WO-20260816-23）追加：规划结果保存（SQLite）/ 列表 / 删除（临时库）。
+"""
 import pytest
 
 from app.agents.planning_agent import PlanningAgent
-from app.tools.planning import parse_plan, plan
+from app.tools.planning import (
+    PlanStore,
+    delete_plan,
+    get_plan,
+    list_plans,
+    parse_plan,
+    plan,
+    save_plan,
+)
 
 # ---------------------------------------------------------------- 解析层
 
@@ -159,3 +170,111 @@ def test_planning_agent_bad_goal(goal) -> None:
     """空目标经 Agent 也应返回结构化错误而非异常。"""
     result = PlanningAgent().plan(goal)  # type: ignore[arg-type]
     assert result["error"] is not None
+
+
+# ---------------------------------------------------------------- M2.2 规划结果保存
+
+def _sample_plan() -> dict:
+    return {
+        "goal": "学会 Python",
+        "steps": [
+            {"no": 1, "title": "安装环境", "priority": "高", "detail": "下载并安装 Python"},
+            {"no": 2, "title": "学语法", "priority": "中", "detail": "变量与函数"},
+        ],
+        "error": None,
+        "raw": "{\"goal\": \"学会 Python\", \"steps\": [...]}",
+    }
+
+
+def test_save_plan_roundtrip(tmp_path) -> None:
+    """保存 → 列表/读取，步骤完整还原（额外字段 error/raw 被忽略）。"""
+    db = str(tmp_path / "plans.db")
+    r = save_plan(_sample_plan(), db_path=db)
+    assert r["error"] is None and r["id"] == 1
+
+    lst = list_plans(db_path=db)
+    assert lst["error"] is None and lst["count"] == 1
+    assert lst["plans"][0]["goal"] == "学会 Python"
+    assert lst["plans"][0]["step_count"] == 2
+    assert lst["plans"][0]["id"] == 1
+
+    g = get_plan(1, db_path=db)
+    assert g["error"] is None
+    assert [s["title"] for s in g["plan"]["steps"]] == ["安装环境", "学语法"]
+    assert g["plan"]["steps"][0]["priority"] == "高"
+
+
+def test_save_plan_persists_across_connections(tmp_path) -> None:
+    """保存后新建 PlanStore 实例仍可读到（跨短连接持久化）。"""
+    db = str(tmp_path / "plans2.db")
+    assert save_plan(_sample_plan(), db_path=db)["id"] == 1
+    store = PlanStore(db)
+    assert store.list()[0]["goal"] == "学会 Python"
+
+
+def test_save_plan_invalid(tmp_path) -> None:
+    """非法规划结果 → 结构化错误，不落库。"""
+    db = str(tmp_path / "plans3.db")
+    assert save_plan("不是 dict", db_path=db)["error"] is not None
+    assert save_plan({}, db_path=db)["error"] is not None
+    assert save_plan({"goal": "g", "steps": []}, db_path=db)["error"] is not None
+    assert save_plan({"goal": "g", "steps": [{"title": ""}]}, db_path=db)["error"] is not None
+    assert PlanStore(db).list() == []
+
+
+def test_save_plan_skips_invalid_steps(tmp_path) -> None:
+    """steps 中无效项被跳过，有效项照常保存。"""
+    db = str(tmp_path / "plans4.db")
+    plan = {"goal": "g", "steps": [42, {"title": "ok", "priority": "高"}, {"title": ""}]}
+    r = save_plan(plan, db_path=db)
+    assert r["error"] is None and r["id"] == 1
+    got = get_plan(1, db_path=db)
+    assert [s["title"] for s in got["plan"]["steps"]] == ["ok"]
+
+
+def test_list_plans_empty(tmp_path) -> None:
+    """空库列表：count=0、error=None（空结果不是失败）。"""
+    db = str(tmp_path / "plans5.db")
+    lst = list_plans(db_path=db)
+    assert lst["count"] == 0 and lst["error"] is None
+
+
+def test_delete_plan(tmp_path) -> None:
+    """删除计划：存在 → True；再删/删不存在 → False + 结构化错误。"""
+    db = str(tmp_path / "plans6.db")
+    id1 = save_plan(_sample_plan(), db_path=db)["id"]
+    id2 = save_plan({"goal": "学做饭", "steps": [{"title": "买菜"}]}, db_path=db)["id"]
+    assert id2 != id1
+    assert delete_plan(id1, db_path=db)["deleted"] is True
+    assert list_plans(db_path=db)["count"] == 1
+    assert delete_plan(id1, db_path=db)["deleted"] is False
+    assert delete_plan(id1, db_path=db)["error"] is not None
+    assert delete_plan(9999, db_path=db)["deleted"] is False
+    assert get_plan(id1, db_path=db)["error"] is not None
+
+
+def test_planning_agent_save_list_delete(tmp_path) -> None:
+    """PlanningAgent：plan（mock LLM）→ save → list → delete 全链路。"""
+    agent = PlanningAgent(db_path=str(tmp_path / "agent_plans.db"))
+    result = agent.plan("周末去爬山", llm_call=lambda prompt: (
+        '{"goal": "周末去爬山", "steps": ['
+        '{"no": 1, "title": "选路线", "priority": "高", "detail": "查攻略选路线"}, '
+        '{"no": 2, "title": "备装备", "priority": "中", "detail": "水与登山鞋"}]}'
+    ))
+    assert result["error"] is None
+    saved = agent.save(result)
+    assert saved["error"] is None and saved["id"] == 1
+    lst = agent.list_plans()
+    assert lst["count"] == 1 and lst["plans"][0]["goal"] == "周末去爬山"
+    assert agent.delete_plan(saved["id"])["deleted"] is True
+    assert agent.list_plans()["count"] == 0
+
+
+def test_planning_agent_save_invalid(tmp_path) -> None:
+    """Agent 保存非法结果 → 结构化错误，不抛异常。"""
+    agent = PlanningAgent(db_path=str(tmp_path / "agent_plans2.db"))
+    r = agent.save({"goal": "g", "steps": []})
+    assert r["error"] is not None
+    r2 = agent.save({})
+    assert r2["error"] is not None
+    assert agent.list_plans()["count"] == 0

@@ -9,10 +9,20 @@
 - 可测试性：`plan(goal, llm_call=...)` 支持注入 LLM 调用函数，离线测试 mock 它即可。
 """
 import json
+import os
 import re
+import sqlite3
+from contextlib import closing
+from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
 from app.tools.llm import chat
+
+# 规划结果保存路径：项目根/data/plans.db（data/ 已 gitignore）
+PLANS_DB_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "data", "plans.db",
+)
 
 # 规划系统提示词：只允许输出一个 JSON 对象，结构固定，便于下游路由/前端直接消费
 SYSTEM_PROMPT = (
@@ -187,3 +197,146 @@ def plan(goal: str, llm_call: Optional[Callable[[str], str]] = None) -> Dict[str
     result = parse_plan(raw, fallback_goal=goal)
     result["raw"] = raw
     return result
+
+
+# ---------------------------------------------------------------- 规划结果保存（M2.2）
+
+class PlanStore:
+    """规划结果存储：SQLite 持久化，短连接模型（每次操作独立短连接，线程安全）。
+
+    表结构：id / goal / steps（JSON 文本）/ created_at。
+    """
+
+    def __init__(self, db_path: str = PLANS_DB_PATH) -> None:
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        self._db_path = db_path
+        with closing(self._connect()) as conn:
+            with conn:
+                conn.execute(
+                    """CREATE TABLE IF NOT EXISTS plans (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        goal TEXT NOT NULL,
+                        steps TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )"""
+                )
+
+    def _connect(self) -> sqlite3.Connection:
+        """打开短连接（调用线程内创建/使用/关闭；timeout 兜底并发写锁）。"""
+        return sqlite3.connect(self._db_path, timeout=5)
+
+    def save(self, goal: str, steps: List[Dict[str, object]]) -> int:
+        """写入一份计划，返回自增 id。"""
+        with closing(self._connect()) as conn:
+            with conn:
+                cur = conn.execute(
+                    "INSERT INTO plans (goal, steps, created_at) VALUES (?,?,?)",
+                    (goal, json.dumps(steps, ensure_ascii=False),
+                     datetime.now().isoformat(timespec="seconds")),
+                )
+                return int(cur.lastrowid)
+
+    def list(self) -> List[Dict[str, object]]:
+        """列出计划摘要（按创建时间倒序）：[{id, goal, step_count, created_at}]。"""
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT id, goal, steps, created_at FROM plans ORDER BY id DESC"
+            ).fetchall()
+        result = []
+        for rid, goal, steps_json, created_at in rows:
+            try:
+                steps = json.loads(steps_json)
+                step_count = len(steps) if isinstance(steps, list) else 0
+            except (json.JSONDecodeError, TypeError):
+                step_count = 0
+            result.append({"id": rid, "goal": goal, "step_count": step_count,
+                           "created_at": created_at})
+        return result
+
+    def get(self, plan_id: int) -> Optional[Dict[str, object]]:
+        """读取一份计划的完整内容（steps 还原为列表）；不存在返回 None。"""
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT id, goal, steps, created_at FROM plans WHERE id = ?", (plan_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            steps = json.loads(row[2])
+        except (json.JSONDecodeError, TypeError):
+            steps = []
+        return {"id": row[0], "goal": row[1], "steps": steps, "created_at": row[3]}
+
+    def delete(self, plan_id: int) -> bool:
+        """删除一份计划，返回是否删除了记录。"""
+        with closing(self._connect()) as conn:
+            with conn:
+                cur = conn.execute("DELETE FROM plans WHERE id = ?", (plan_id,))
+                return cur.rowcount > 0
+
+
+def save_plan(plan: Dict[str, object], db_path: str = PLANS_DB_PATH) -> Dict[str, object]:
+    """保存一份规划结果（『把这个计划存下来』→ SQLite）。
+
+    入参为 plan() 返回的结构：{"goal", "steps": [{"no","title","priority","detail"}, ...]}，
+    额外字段（error/raw 等）忽略。返回 {"id", "error"}：成功 error=None。
+    """
+    if not isinstance(plan, dict):
+        return {"id": None, "error": "规划结果格式不正确（需要 dict）"}
+    goal = str(plan.get("goal") or "").strip()
+    steps = plan.get("steps")
+    if not goal:
+        return {"id": None, "error": "规划结果缺少目标（goal）"}
+    if not isinstance(steps, list) or not steps:
+        return {"id": None, "error": "规划结果缺少步骤（steps 不能为空）"}
+    clean = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        title = str(step.get("title") or "").strip()
+        if not title:
+            continue
+        clean.append({
+            "no": step.get("no"),
+            "title": title,
+            "priority": str(step.get("priority") or "").strip() or "中",
+            "detail": str(step.get("detail") or "").strip(),
+        })
+    if not clean:
+        return {"id": None, "error": "规划结果没有有效的步骤"}
+    try:
+        plan_id = PlanStore(db_path).save(goal, clean)
+    except Exception as exc:  # 落库失败：降级为结构化错误，不抛异常
+        return {"id": None, "error": f"规划保存失败：{exc}"}
+    return {"id": plan_id, "error": None}
+
+
+def list_plans(db_path: str = PLANS_DB_PATH) -> Dict[str, object]:
+    """列出已保存的计划：{"plans": [{id, goal, step_count, created_at}], "count", "error"}。"""
+    try:
+        plans = PlanStore(db_path).list()
+    except Exception as exc:  # 读取失败：降级为结构化错误，不抛异常
+        return {"plans": [], "count": 0, "error": f"计划列表读取失败：{exc}"}
+    return {"plans": plans, "count": len(plans), "error": None}
+
+
+def get_plan(plan_id: int, db_path: str = PLANS_DB_PATH) -> Dict[str, object]:
+    """读取一份已保存的计划：{"plan": {id, goal, steps, created_at} | None, "error"}。"""
+    try:
+        plan = PlanStore(db_path).get(plan_id)
+    except Exception as exc:  # 读取失败：降级为结构化错误，不抛异常
+        return {"plan": None, "error": f"计划读取失败：{exc}"}
+    if plan is None:
+        return {"plan": None, "error": f"没有找到 id={plan_id} 的计划"}
+    return {"plan": plan, "error": None}
+
+
+def delete_plan(plan_id: int, db_path: str = PLANS_DB_PATH) -> Dict[str, object]:
+    """删除一份已保存的计划：{"deleted": bool, "error"}。"""
+    try:
+        deleted = PlanStore(db_path).delete(plan_id)
+    except Exception as exc:  # 删除失败：降级为结构化错误，不抛异常
+        return {"deleted": False, "error": f"计划删除失败：{exc}"}
+    if not deleted:
+        return {"deleted": False, "error": f"没有找到 id={plan_id} 的计划"}
+    return {"deleted": True, "error": None}

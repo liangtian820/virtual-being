@@ -8,11 +8,14 @@
 ## 当前状态：M6（打磨与展示）
 
 - ✅ M1 文本灵魂：Ollama 本地推理（qwen2.5:7b）+ 人格 Agent + 会话内记忆
-- ✅ M2 能力扩展：知识查询 + 计算能力 Agent（意图路由、人设包装）；M2.1 追加规划助手 + 日程备忘（WO-20260816-20）
+- ✅ M2 能力扩展：知识查询 + 计算能力 Agent（意图路由、人设包装）；M2.1 追加规划助手 + 日程备忘（WO-20260816-20）；M2.2 日程/规划增强：周几解析、删除/完成标记、重复提醒、规划结果保存（WO-20260816-23）
 - ✅ M3 专属记忆：SQLite 跨会话长期记忆（fact + topic）
 - ✅ M3.5 记忆向量化：Ollama all-minilm 语义检索 + jieba 中文分词 + 语义/关键词融合（`app/memory/`）
 - ✅ M4 语音：ASR（Whisper 本地识别，中文）+ TTS（edge-tts 中文女声）+ 语音对话链路（说→听→回→播）
+- ✅ M4.3/M4.4 语音 <5s 冲刺 + 危机安全补丁：默认 `llama3.2:3b + piper 本地 TTS`，危机路径代码层强制专业求助引导
 - ✅ M5 形象：Web 聊天界面（程序化原创立绘 + 表情状态 + 语音控件）
+- ✅ M5.1 意图路由 + 记忆问答（WO-20260816-22）：人格对话激活规划/日程能力 Agent（`is_planning_query`/`is_schedule_query`）、
+  记忆问答走向量检索（`retrieve_fused`）、记忆 API（`GET/DELETE /memory`）、中文口语禁夹英文
 - 🚧 M6 打磨展示：README 架构图与演示脚本（进行中）、角色一致性评测（`docs/consistency_testset.md`）、GitHub 仓库准备
 
 ## 功能清单
@@ -23,6 +26,8 @@
 | 能力扩展 | M2 | 知识查询 + 计算 + 规划 + 日程备忘能力 Agent（意图路由、人设包装） | `app/agents/knowledge_agent.py`、`calculator_agent.py`、`planning_agent.py`、`schedule_agent.py` |
 | 规划助手 | M2.1 | 模糊目标 → 结构化步骤清单（目标/带序号步骤/预估优先级，LLM 生成、输出 JSON） | `app/agents/planning_agent.py`、`app/tools/planning.py` |
 | 日程备忘 | M2.1 | 自然语言提醒 → 日程条目（时间/事项）+ SQLite 持久化（`data/`，gitignored）+ 今日/明日查询 | `app/agents/schedule_agent.py`、`app/tools/schedule.py` |
+| 日程增强 | M2.2 | 周几解析（『周三下午吃药』→ 最近一个周三，datetime 跨周边界）+ 删除（『删掉明天下午的提醒』）+ 完成标记（『今天喝水的提醒完成了』）+ 重复提醒（『每天早上提醒我喝水』） | `app/agents/schedule_agent.py`、`app/tools/schedule.py` |
+| 规划保存 | M2.2 | 规划结果可保存（『把这个计划存下来』→ SQLite `data/plans.db`）+ 计划列表/删除 | `app/agents/planning_agent.py`、`app/tools/planning.py` |
 | 专属记忆 | M3/M3.5 | SQLite 跨会话长期记忆（fact/topic 抽取、去重、线程安全）+ 向量语义检索与关键词融合 | `app/memory/long_term_memory.py`、`app/memory/embeddings.py` |
 | 语音对话 | M4 | 说→听→回→播：Whisper ASR（本地识别）+ edge-tts TTS（中文女声） | `POST /chat/voice`、`scripts/run_voice_demo.py` |
 | 形象（Web 界面） | M5 | 程序化原创立绘 + 4 表情状态 + 按住说话语音控件 | `GET /`、`web/` |
@@ -79,6 +84,22 @@ uvicorn app.main:app --port 8000         # Web 服务
   `MEMORY_FUSION_SEMANTIC_WEIGHT`/`MEMORY_FUSION_KEYWORD_WEIGHT`（默认 0.6/0.4）、
   `MEMORY_AUTO_BACKFILL`（默认 1，语义检索时对旧数据 lazy 补向量），见 `app/config.py`。
 
+### 意图路由与记忆问答（M5.1，WO-20260816-22）
+
+人格 Agent 在对话中按顺序路由意图（危机 → 知识 → 计算 → 记忆问答 → 规划 → 日程 → 普通），
+命中能力分支时调用对应能力 Agent 取**结构化结果注入上下文**，人设化回复仍由人格 Agent 完成
+（能力 Agent 不抢人设；误判宁可交人格自由发挥，不硬路由）。
+
+- **规划**：『帮我规划周末学做饭』→ `PlanningAgent.plan` → 注入步骤清单（目标/序号/优先级）→ 人设化叙述
+- **日程添加**：『提醒我明天下午 3 点喝水』→ `ScheduleAgent.add` → 人设化确认并**回显日期/时间/事项**
+- **日程查询**：『我今天有什么安排』→ `ScheduleAgent.today` → 今日日程人设化列出
+- **记忆问答**：『你记得我喜欢什么吗』『我上次说的计划』→ `LongTermMemory.retrieve_fused`
+  （M3.5 语义+关键词融合）替换原关键词注入；『我的记忆有哪些』→ 摘要级列示
+- **中文口语**：系统提示词追加【语言】规则——全程简体中文口语、禁止夹英文（必要术语除外）、
+  数字时间用中文习惯表达
+- 意图检测实现：`app/agents/persona_agent.py`（`is_planning_query` / `is_schedule_query` /
+  `is_schedule_lookup` / `is_memory_query` / `is_memory_list_query`，强关键词保守匹配）
+
 ## API
 
 - `GET /` — Web 聊天界面首页（立绘 + 对话窗 + 语音控件）
@@ -88,6 +109,8 @@ uvicorn app.main:app --port 8000         # Web 服务
   `{"text", "reply", "session_id", "audio_url", "latencies_ms"}`；`audio_url` 指向
   `GET /voice/replies/{filename}` 可直接播放
 - `GET /voice/replies/{filename}` — 下载/播放回复音频（MP3）
+- `GET /memory` — 列示长期记忆（摘要级，`?limit=N` 默认 50，最多 200）
+- `DELETE /memory` — 清空长期记忆（需 `?confirm=1` 确认，返回删除条数并留痕日志）
 - `GET /health` — 健康检查
 
 ```powershell
@@ -116,7 +139,8 @@ curl -F "file=@user.mp3" http://127.0.0.1:8000/chat/voice
                 ▼                               │
 ┌────────────────────────────── Agent 层 ───────────────────────────────────────┐
 │  人格 Agent（角色卡 + 提示词，温柔治愈人设）                                    │
-│    ├─ 意图路由 → 知识查询 Agent（M2）/ 计算能力 Agent（M2）                     │
+│    ├─ 意图路由 → 知识查询/计算/规划/日程能力 Agent（M2/M5.1）                   │
+│    ├─ 记忆问答 → 长期记忆向量融合检索（M3.5/M5.1）                               │
 │    └─ 长期记忆：fact/topic 抽取、去重、SQLite 持久化（M3）                      │
 └──────────────────────────────┬─────────────────────────────────────────────────┘
                                ▼
