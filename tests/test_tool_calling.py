@@ -656,7 +656,12 @@ def test_query_knowledge_web_fallback_empty_stays_honest(monkeypatch):
 
 
 def test_knowledge_route_3tier_fallback_injects_web(monkeypatch, tmp_path):
-    """M6.6：无工具路径下知识无结果 → 注入 Bing 联网搜索结果（_route_by_keywords 三级兜底）。"""
+    """M6.6：无工具路径下知识无结果 → 注入 Bing 联网搜索结果（_route_by_keywords 三级兜底）。
+
+    M6.8 追加（QA 最终报告）：本模块 fixture 开启工具路径，若 _call_ollama_with_tools 未 mock，
+    chat() 会走真实 Ollama 工具决策（随机）——LLM 一旦调了 query_knowledge 便不落关键词路由，
+    断言不稳定（连跑 3 次失败）。此处强制 mock 无 tool_calls，确定性验证路由兜底注入。
+    """
     from app.memory.long_term_memory import LongTermMemory
 
     mem = LongTermMemory(db_path=str(tmp_path / "kb3.db"))
@@ -668,6 +673,9 @@ def test_knowledge_route_3tier_fallback_injects_web(monkeypatch, tmp_path):
         captured["sys"] = [m["content"] for m in messages if m["role"] == "system"]
         return "好的～"
 
+    # 强制工具决策不产生 tool_calls → 确定性走关键词路由（不经真实 Ollama，避免随机失败）
+    monkeypatch.setattr(agent, "_call_ollama_with_tools",
+                        lambda *a, **k: {"content": "", "tool_calls": None})
     monkeypatch.setattr(agent, "_call_ollama", record)
     monkeypatch.setattr("app.tools.web_search.search_text",
                         lambda q, timeout=10: "1. DeepSeek Harness 文档\n   链接：https://example.com/dsh\n   摘要：摘要")
