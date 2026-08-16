@@ -263,3 +263,57 @@ def test_tool_path_exception_falls_back(monkeypatch):
     monkeypatch.setattr(agent, "_call_ollama", lambda *a, **k: "（异常兜底回复）")
     reply, _ = agent.chat("明天下午3点提醒我喝水")
     assert reply == "（异常兜底回复）"
+
+
+# ---------- M6.2：防重复执行 / 历史注入 / 防假完成指引 ----------
+
+
+def test_tool_used_but_stage2_fails_no_double_execute(monkeypatch):
+    """M6.2：工具已执行（如已添加日程）但阶段 2 人设回复异常 → 用安全兜底文案，
+    绝不回退关键词路由重复执行（scheduler.add 只调用一次）。"""
+    agent = _make_agent()
+    script = iter([
+        {"content": "", "tool_calls": [
+            {"function": {"name": "add_schedule", "arguments": {"text": "明天下午3点提醒我喝水"}}}]},
+        {"content": "", "tool_calls": None},
+    ])
+    monkeypatch.setattr(agent, "_call_ollama_with_tools", lambda *a, **k: next(script))
+
+    def boom(*a, **k):
+        raise RuntimeError("阶段2 Ollama 挂了")
+
+    monkeypatch.setattr(agent, "_call_ollama", boom)
+    reply, _ = agent.chat("明天下午3点提醒我喝水")
+    assert reply == agent._TOOL_DONE_FALLBACK
+    assert agent._scheduler.added == ["明天下午3点提醒我喝水"]  # 仅执行一次
+
+
+def test_tool_decision_injects_recent_history(monkeypatch):
+    """M6.2：阶段 1 工具决策注入最近会话历史（支持多轮指代）。"""
+    agent = _make_agent()
+    captured = {}
+
+    def record(messages, tools, max_tokens=None):
+        captured["stage1"] = [m for m in messages]
+        return {"content": "", "tool_calls": None}
+
+    monkeypatch.setattr(agent, "_call_ollama_with_tools", record)
+    monkeypatch.setattr(agent, "_call_ollama", lambda *a, **k: "好的～")
+    # 第一轮：工具未用（record 返回无 tool_calls）→ 回退关键词路由，留下会话历史
+    agent.chat("明天下午3点提醒我喝水", session_id="hist-session")
+    captured.pop("stage1", None)
+    # 第二轮（同会话新日程请求）：验证阶段 1 注入历史（含上一轮用户输入）
+    agent.chat("后天下午4点提醒我吃药", session_id="hist-session")
+    stage1 = captured.get("stage1", [])
+    roles = [m["role"] for m in stage1]
+    assert "user" in roles
+    contents = " ".join(m.get("content", "") for m in stage1)
+    assert "提醒我喝水" in contents  # 上一轮用户输入出现在阶段 1 历史中
+
+
+def test_guidance_contains_no_fake_completion_rule():
+    """M6.2：工具指引含『不得未调用工具即声称已完成』防假完成规则。"""
+    agent = _make_agent()
+    g = agent._TOOL_USE_GUIDANCE
+    assert "不要在没有调用工具" in g and "声称" in g
+    assert "mark_schedule_done" in g and "delete_schedule" in g and "save_plan" in g

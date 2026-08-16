@@ -9,6 +9,7 @@ M3 编排：
 - 新增计算意图：命中 → 调用能力 Agent（CalculatorAgent）→ 计算结果注入上下文，
   人设包装仍由本 Agent 完成。
 """
+import json
 import re
 import uuid
 from typing import List, Optional
@@ -302,11 +303,15 @@ class PersonaAgent:
         # 其余情况（工具路径失败 / 未用工具但意图命中需确定性操作）→ 落到下方关键词路由链。
         # M6.1（WO-20260816-29）：工具调用路径（非危机、开启、且命中可服务意图时尝试）。
         # 两阶段：LLM 工具决策 → 人设包装回复；未用工具/失败 → 落到下方关键词路由链。
+        # M6.2：注入最近会话历史（多轮指代）；工具已执行后阶段 2 失败 → 安全兜底文案，
+        # 绝不回退关键词路由（避免重复执行工具）。
         if (not is_crisis_query(user_input) and self._tools_enabled
                 and self._needs_keyword_route(user_input)):
-            tool_reply, tool_used, tool_failed = self._try_tool_calling(user_input, messages, max_tokens)
-            if tool_used and tool_reply is not None:
-                reply = tool_reply
+            history = self._memory.load(sid)[:-1][-6:]  # 最近 6 轮（不含当前输入）
+            tool_reply, tool_used, tool_failed = self._try_tool_calling(
+                user_input, messages, history=history, max_tokens=max_tokens)
+            if tool_used:
+                reply = tool_reply if tool_reply is not None else self._TOOL_DONE_FALLBACK
                 for kind, content in extract_memories(user_input):
                     self._memory_long.add(kind, content, source_session=sid)
                 self._memory.append(sid, "assistant", reply)
@@ -619,31 +624,43 @@ class PersonaAgent:
         "- 用户要求算数/百分比（算一下/多少的/百分之）→ 调用 calculate；\n"
         "- 用户问保存过的计划 → 调用 list_plans；\n"
         "- 用户要求把计划保存/存下来（『存下来/保存这个计划』『把计划存起来』）→ 调用 save_plan。\n"
-        "只有用户请求确实对应某个工具时才调用；闲聊、情绪陪伴等不需要工具时直接温柔回复即可，不要编造工具结果。"
+        "只有用户请求确实对应某个工具时才调用；闲聊、情绪陪伴等不需要工具时直接温柔回复即可。\n"
+        "重要：绝对不要在没有调用工具并确认工具返回成功的情况下，声称『已经记下了/已删除/已标记完成/已保存』；"
+        "工具未执行或返回错误时，如实告诉用户没能办成（如『这个我还没帮你弄好呢』）。"
     )
 
+    # M6.2（WO-20260816-31）：工具已执行但最终人设回复失败时的安全兜底文案。
+    # 不能回退关键词路由（会重复执行工具，如二次添加日程），改用中性确认语。
+    _TOOL_DONE_FALLBACK = "嗯嗯，已经帮你处理好啦～有需要再找我哦。"
+
     def _try_tool_calling(self, user_input: str, messages: List[dict],
+                          history: Optional[List[dict]] = None,
                           max_tokens: Optional[int] = None):
         """两阶段 LLM 工具调用（≤3 轮工具决策，随后人设包装回复）。
 
-        阶段 1（工具决策）：仅用规则指引 + 用户输入（不带人设系统提示词，
+        阶段 1（工具决策）：规则指引 + 最近会话历史 + 用户输入（不带人设系统提示词，
         实测 7B 在无人设下才会调用工具）；执行工具并回填。
         阶段 2（人设回复）：完整人设系统提示词 + 记忆 + 用户输入 + 工具结果 →
         人设化最终回复（不传 tools，避免压制）。
 
         返回 (reply, used_tool, failed)：
-        - used_tool=True：工具被执行，reply 为人设化最终回复；
-        - used_tool=False：阶段 1 未产生工具调用（或失败），调用方回退关键词路由。
+        - used_tool=True：工具被执行；reply 为人设化最终回复（阶段 2 失败时为 None，
+          调用方必须用 _TOOL_DONE_FALLBACK，不得回退重执行）；
+        - used_tool=False：阶段 1 未产生工具调用（或未执行任何工具即失败），
+          调用方回退关键词路由（无副作用，安全）。
         """
         try:
             tools = get_tool_specs()
             stage1 = [
                 {"role": "system", "content": self._TOOL_USE_GUIDANCE},
-                {"role": "user", "content": user_input},
             ]
+            if history:
+                # M6.2：注入最近会话历史（不含当前输入），支持多轮指代（如『那明天呢』）
+                stage1.extend(history)
+            stage1.append({"role": "user", "content": user_input})
             used_any = False
             for _ in range(3):
-                resp = self._call_ollama_with_tools(stage1, tools, max_tokens=None)
+                resp = self._call_ollama_with_tools(stage1, tools, max_tokens=max_tokens)
                 tool_calls = resp.get("tool_calls")
                 if not tool_calls:
                     if not used_any:
@@ -661,7 +678,6 @@ class PersonaAgent:
                     try:
                         arguments = fn.get("arguments") or {}
                         if isinstance(arguments, str):
-                            import json
                             arguments = json.loads(arguments or "{}")
                     except Exception:
                         arguments = {}
@@ -682,10 +698,16 @@ class PersonaAgent:
                                  "不要提『工具』『函数』『系统』等词，保持温柔治愈、简短口语）。",
                 },
             ]
-            reply = self._call_ollama(msgs2, max_tokens)
+            try:
+                reply = self._call_ollama(msgs2, max_tokens)
+            except Exception:
+                # M6.2：工具已执行，阶段 2 回复失败——返回 (None, True, True)，
+                # 调用方用安全兜底文案，绝不回退关键词路由（避免重复执行）。
+                return None, True, True
             return reply, True, False
         except Exception:
-            return None, False, True  # 工具路径异常 → 回退关键词路由
+            # 阶段 1 尚未执行工具即异常 → 回退关键词路由安全（无副作用）
+            return None, False, True
 
     @staticmethod
     def _needs_keyword_route(text: str) -> bool:
