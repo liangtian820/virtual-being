@@ -187,6 +187,23 @@ TOOL_SPECS: list = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "通用联网搜索（Bing）：搜索全网最新资讯、新闻、教程、信息等（如『今天的热点新闻』『XX 教程』『某产品价格』）。内置知识库查不到或用户明确要求搜索网络时调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "搜索关键词（简洁具体，如『DeepSeek 最新新闻』）。",
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 # 工具名 → 说明映射（错误提示用）

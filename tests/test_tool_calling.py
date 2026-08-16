@@ -104,6 +104,7 @@ def test_tool_specs_complete():
     assert names == {
         "get_schedule", "add_schedule", "mark_schedule_done", "delete_schedule",
         "list_plans", "save_plan", "query_memory", "query_knowledge", "calculate",
+        "web_search",
     }
     for s in specs:
         assert s["type"] == "function"
@@ -178,6 +179,16 @@ def test_execute_unknown_tool():
     agent = _make_agent()
     out = agent._execute_tool("no_such_tool", {})
     assert "未知工具" in out
+
+
+def test_execute_web_search(monkeypatch):
+    agent = _make_agent()
+    monkeypatch.setattr(
+        "app.tools.web_search.search_text",
+        lambda q, timeout=10: "1. 测试标题\n   链接：https://example.com\n   摘要：这是摘要",
+    )
+    out = agent._execute_tool("web_search", {"query": "DeepSeek 新闻"})
+    assert "测试标题" in out and "https://example.com" in out
 
 
 # ---------- 工具调用循环 ----------

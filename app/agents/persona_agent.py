@@ -606,6 +606,12 @@ class PersonaAgent:
                 if result.get("error"):
                     return f"错误：{result['error']}"
                 return f"已保存计划（id={result.get('id')}）：{goal}（{len(steps)} 步）"
+            if name == "web_search":
+                query = (arguments.get("query") or "").strip()
+                if not query:
+                    return "错误：缺少搜索关键词"
+                from app.tools.web_search import search_text
+                return search_text(query)
             return f"错误：未知工具 {name}"
         except Exception as exc:  # 任何工具执行异常都如实返回，不编造结果
             return f"错误：工具执行失败 {exc}"
@@ -623,7 +629,8 @@ class PersonaAgent:
         "- 用户问知识概念（什么是/介绍一下/查一下/帮我查）→ 调用 query_knowledge；\n"
         "- 用户要求算数/百分比（算一下/多少的/百分之）→ 调用 calculate；\n"
         "- 用户问保存过的计划 → 调用 list_plans；\n"
-        "- 用户要求把计划保存/存下来（『存下来/保存这个计划』『把计划存起来』）→ 调用 save_plan。\n"
+        "- 用户要求把计划保存/存下来（『存下来/保存这个计划』『把计划存起来』）→ 调用 save_plan；\n"
+        "- 用户问最新资讯/新闻/教程/实时信息，或内置知识库查不到的内容 → 调用 web_search（参数 query 传简洁关键词）。\n"
         "只有用户请求确实对应某个工具时才调用；闲聊、情绪陪伴等不需要工具时直接温柔回复即可。\n"
         "重要：绝对不要在没有调用工具并确认工具返回成功的情况下，声称『已经记下了/已删除/已标记完成/已保存』；"
         "工具未执行或返回错误时，如实告诉用户没能办成（如『这个我还没帮你弄好呢』）。"
