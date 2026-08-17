@@ -1,0 +1,82 @@
+{
+  "before": {
+    "chat_plain": 2.9172216000000004,
+    "chat_schedule": 11.1151771,
+    "chat_knowledge": 38.370011,
+    "chat_search": 29.3336745,
+    "memory_retrieve": 0.048587899999972706
+  },
+  "after": {
+    "chat_plain": {
+      "median_s": 3.02,
+      "before_s": 2.9172216000000004,
+      "reply": "你好呀",
+      "decision_rounds": []
+    },
+    "chat_schedule": {
+      "median_s": 4.12,
+      "before_s": 11.1151771,
+      "reply": "好呀，明天下午3点提醒你喝水，我记下啦～记得多喝水对身体好哦。如果有其他事情需要安排，也可以告诉我呢。",
+      "decision_rounds": []
+    },
+    "chat_memory": {
+      "median_s": 0.0,
+      "before_s": null,
+      "reply": "我这边好像没有那次的记录呢，你可以跟我说说～",
+      "decision_rounds": []
+    },
+    "chat_calc": {
+      "median_s": 4.42,
+      "before_s": null,
+      "reply": "嗯嗯，300 的 20% 就是 60 呢。这样吧，想象你有 300 颗糖果，然后你把它们平均分成 5 份，每份就是 60 颗糖果哦。希望这个简单的比喻能让你轻松一点！需要我再帮你算点别的吗？",
+      "decision_rounds": []
+    },
+    "chat_knowledge": {
+      "median_s": 11.47,
+      "before_s": 38.370011,
+      "reply": "DeepSeek Harness 是一个开源的 AI 工具，它的主要作用是让 AI 模型能更稳定、可靠地完成各种编码任务。这个工具像是为 AI 装上了一套坚固的盔甲，让它在复杂的工作中也能表现出色。（来源：Bing 联网搜索）",
+      "decision_rounds": []
+    },
+    "chat_search": {
+      "median_s": 7.19,
+      "before_s": 29.3336745,
+      "reply": "好的呢，我帮你查找了一下关于 DeepSeek 的最新信息。这里有一条更新：DeepSeek 官网发布了最新的 DeepSeek-V4-Pro 版本，其 Agent 能力得到了大幅提升，并支持 Responses API 等功能。\n\n不过看起来最新的官方新闻好像没有更多的内容更新了，你可以直接访问 [DeepSeek官网](https://agents-deepseek.com.cn/) 查看更多",
+      "decision_rounds": []
+    },
+    "cache": {
+      "first_s": 0.85,
+      "hit_s": 0.0
+    }
+  },
+  "verdicts": {
+    "chat_knowledge": {
+      "limit_s": 15.0,
+      "passed": true
+    },
+    "chat_search": {
+      "limit_s": 15.0,
+      "passed": true
+    },
+    "chat_schedule": {
+      "limit_s": 6.0,
+      "passed": true
+    },
+    "chat_memory": {
+      "limit_s": 6.0,
+      "passed": true
+    },
+    "chat_calc": {
+      "limit_s": 6.0,
+      "passed": true
+    }
+  },
+  "cache_hit_s": 0.0,
+  "checks": [
+    "PASS 知识查询拿到真实结果",
+    "PASS 搜索拿到真实结果",
+    "PASS 记忆问答如实（空记忆短路）",
+    "PASS 计算正确（300 的 20% = 60）",
+    "PASS 日程落库"
+  ],
+  "pass": true
+}

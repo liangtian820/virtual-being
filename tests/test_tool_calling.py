@@ -397,27 +397,38 @@ def test_tool_used_but_stage2_fails_no_double_execute(monkeypatch):
 def test_tool_decision_injects_recent_history(monkeypatch):
     """M6.2：阶段 1 工具决策注入最近会话历史（支持多轮指代）。
 
-    M6.9（WO-20260816-40）：日程意图已走确定性路由不进 LLM 工具路径，
-    本用例改用保留工具路径的知识意图验证历史注入。"""
-    agent = _make_agent()
-    captured = {}
+    M6.9（WO-20260816-40）：日程/记忆/计算/知识/搜索已走确定性路由不进 LLM 工具路径，
+    仅 Obsidian 保留工具路径——本用例改用 obsidian 意图验证历史注入。"""
+    from app.plugins.registry import registry as global_registry
 
-    def record(messages, tools, max_tokens=None):
-        captured["stage1"] = [m for m in messages]
-        return {"content": "", "tool_calls": None}
+    global_registry.register(
+        "obsidian_vault_list",
+        {"type": "function", "function": {"name": "obsidian_vault_list", "description": "列目录",
+                                          "parameters": {"type": "object", "properties": {}}}},
+        lambda args: "[]",
+    )
+    try:
+        agent = _make_agent()
+        captured = {}
 
-    monkeypatch.setattr(agent, "_call_ollama_with_tools", record)
-    monkeypatch.setattr(agent, "_call_ollama", lambda *a, **k: "好的～")
-    # 第一轮：工具未用（record 返回无 tool_calls）→ 回退关键词路由，留下会话历史
-    agent.chat("什么是 LangGraph？", session_id="hist-session")
-    captured.pop("stage1", None)
-    # 第二轮（同会话新知识请求）：验证阶段 1 注入历史（含上一轮用户输入）
-    agent.chat("什么是 RAG？", session_id="hist-session")
-    stage1 = captured.get("stage1", [])
-    roles = [m["role"] for m in stage1]
-    assert "user" in roles
-    contents = " ".join(m.get("content", "") for m in stage1)
-    assert "LangGraph" in contents  # 上一轮用户输入出现在阶段 1 历史中
+        def record(messages, tools, max_tokens=None):
+            captured["stage1"] = [m for m in messages]
+            return {"content": "", "tool_calls": None}
+
+        monkeypatch.setattr(agent, "_call_ollama_with_tools", record)
+        monkeypatch.setattr(agent, "_call_ollama", lambda *a, **k: "好的～")
+        # 第一轮：工具未用（record 返回无 tool_calls）→ 回退关键词路由，留下会话历史
+        agent.chat("列出知识库里 30 项目的文档", session_id="hist-session")
+        captured.pop("stage1", None)
+        # 第二轮（同会话新知识库请求）：验证阶段 1 注入历史（含上一轮用户输入）
+        agent.chat("列出知识库里 99 · 归档 的文档", session_id="hist-session")
+        stage1 = captured.get("stage1", [])
+        roles = [m["role"] for m in stage1]
+        assert "user" in roles
+        contents = " ".join(m.get("content", "") for m in stage1)
+        assert "30 项目" in contents  # 上一轮用户输入出现在阶段 1 历史中
+    finally:
+        global_registry.unregister("obsidian_vault_list")
 
 
 def test_guidance_contains_no_fake_completion_rule():
@@ -433,22 +444,34 @@ def test_guidance_contains_no_fake_completion_rule():
 
 
 def test_tool_path_passes_only_candidate_schemas(monkeypatch):
-    """M6.4：阶段 1 只带候选组 schema（不再全量 26 个），资讯意图含 web_search。"""
-    agent = _make_agent()
-    captured = {}
+    """M6.4：阶段 1 只带候选组 schema（M6.9：日程/记忆/计算/知识/搜索走确定性路由，
+    仅 Obsidian 保留 LLM 工具路径——验证 obsidian_read 候选组 ≤8 且含 vault_list）。"""
+    from app.plugins.registry import registry as global_registry
 
-    def record(messages, tools, max_tokens=None):
-        captured["names"] = [t["function"]["name"] for t in tools]
-        captured["guidance"] = messages[0]["content"]
-        return {"content": "", "tool_calls": None}
+    global_registry.register(
+        "obsidian_vault_list",
+        {"type": "function", "function": {"name": "obsidian_vault_list", "description": "列目录",
+                                          "parameters": {"type": "object", "properties": {}}}},
+        lambda args: "[]",
+    )
+    try:
+        agent = _make_agent()
+        captured = {}
 
-    monkeypatch.setattr(agent, "_call_ollama_with_tools", record)
-    monkeypatch.setattr(agent, "_call_ollama", lambda *a, **k: "好的～")
-    agent.chat("帮我搜一下 DeepSeek 最新新闻", session_id="cand-session")
-    assert "web_search" in captured["names"]
-    assert len(captured["names"]) <= 8
-    assert "add_schedule" not in captured["names"]  # 日程工具不在资讯候选里
-    assert "web_search" in captured["guidance"]
+        def record(messages, tools, max_tokens=None):
+            captured["names"] = [t["function"]["name"] for t in tools]
+            captured["guidance"] = messages[0]["content"]
+            return {"content": "", "tool_calls": None}
+
+        monkeypatch.setattr(agent, "_call_ollama_with_tools", record)
+        monkeypatch.setattr(agent, "_call_ollama", lambda *a, **k: "好的～")
+        agent.chat("列出知识库里 30 项目的文档", session_id="cand-session")
+        assert "obsidian_vault_list" in captured["names"]
+        assert len(captured["names"]) <= 8
+        assert "add_schedule" not in captured["names"]  # 日程工具不在知识库候选里
+        assert "obsidian_vault_list" in captured["guidance"]
+    finally:
+        global_registry.unregister("obsidian_vault_list")
 
 
 def test_web_intent_deterministic_fallback(monkeypatch):
@@ -705,25 +728,39 @@ def test_knowledge_route_3tier_fallback_injects_web(monkeypatch, tmp_path):
 
 
 def test_stage2_prompt_requires_natural_wording(monkeypatch):
-    """M6.6：阶段 2 非空回显提示含自然化要求（不念清单、不套模板开头）。"""
-    agent = _make_agent()
-    script = iter([
-        {"content": "", "tool_calls": [
-            {"function": {"name": "query_knowledge", "arguments": {"question": "LangChain 是什么"}}}]},
-        {"content": "", "tool_calls": None},
-    ])
-    captured = {}
+    """M6.6：阶段 2 非空回显提示含自然化要求（不念清单、不套模板开头）。
 
-    def record_stage2(messages, max_tokens=None):
-        captured["msgs"] = messages
-        return "好的～"
+    M6.9（WO-20260816-40）：知识意图已走确定性路由，仅 Obsidian 保留 LLM 工具路径——
+    用 obsidian 工具执行验证阶段 2 提示词。"""
+    from app.plugins.registry import registry as global_registry
 
-    monkeypatch.setattr(agent, "_call_ollama_with_tools", lambda *a, **k: next(script))
-    monkeypatch.setattr(agent, "_call_ollama", record_stage2)
-    agent.chat("LangChain 是什么", session_id="natural-wording")
-    result_msg = [m["content"] for m in captured["msgs"] if m["role"] == "system"][-1]
-    assert "不要念清单" in result_msg and "模板" in result_msg  # 自然化要求
-    assert "句式有变化" in result_msg
+    global_registry.register(
+        "obsidian_vault_list",
+        {"type": "function", "function": {"name": "obsidian_vault_list", "description": "列目录",
+                                          "parameters": {"type": "object", "properties": {}}}},
+        lambda args: '{"files": ["AI虚拟人物/"]}',
+    )
+    try:
+        agent = _make_agent()
+        script = iter([
+            {"content": "", "tool_calls": [
+                {"function": {"name": "obsidian_vault_list", "arguments": {"path": "30 · 项目"}}}]},
+            {"content": "", "tool_calls": None},
+        ])
+        captured = {}
+
+        def record_stage2(messages, max_tokens=None):
+            captured["msgs"] = messages
+            return "知识库里有 AI虚拟人物 文件夹哦"  # 含真实条目，不触发 M6.7 编造重写
+
+        monkeypatch.setattr(agent, "_call_ollama_with_tools", lambda *a, **k: next(script))
+        monkeypatch.setattr(agent, "_call_ollama", record_stage2)
+        agent.chat("列出知识库里 30 项目的文档", session_id="natural-wording")
+        result_msg = [m["content"] for m in captured["msgs"] if m["role"] == "system"][-1]
+        assert "不要念清单" in result_msg and "模板" in result_msg  # 自然化要求
+        assert "句式有变化" in result_msg
+    finally:
+        global_registry.unregister("obsidian_vault_list")
 
 
 def test_character_card_natural_wording():

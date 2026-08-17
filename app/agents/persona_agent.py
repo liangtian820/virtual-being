@@ -1254,11 +1254,13 @@ class PersonaAgent:
     def _needs_llm_tool_decision(text: str) -> bool:
         """是否需要两阶段 LLM 工具决策（M6.9，WO-20260816-40 确定性优先）：
 
-        强关键词意图（日程/记忆/计算/规划）选型确定——直接走 _route_by_keywords 确定性执行，
-        跳过阶段 1 LLM 决策（基线『提醒我喝水』11.1s → ≤6s 目标，正确性不降）；
-        模糊意图（知识/搜索/知识库）保留 LLM 决策（需选工具，或精确参数如 obsidian path）。
+        强关键词意图（日程/记忆/计算/规划/知识/搜索）选型确定——直接走 _route_by_keywords
+        确定性执行（知识=内置→Wiki→Bing 三级兜底、搜索=联网、日程落库、计算、记忆短路），
+        跳过阶段 1 LLM 决策（基线『提醒我喝水』11.1s → ≤6s、『deepseek harness是什么』
+        38.4s → ≤15s 目标）；仅 Obsidian 知识库保留 LLM 决策——需要精确 path 参数
+        （如 '30 · 项目'，LLM 从候选组 schema 提示中生成完整目录名）。
         """
-        return (is_knowledge_query(text) or is_web_search_query(text) or is_obsidian_query(text))
+        return is_obsidian_query(text)
 
     @property
     def system_prompt(self) -> str:
