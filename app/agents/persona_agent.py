@@ -946,8 +946,8 @@ class PersonaAgent:
             used_any = False
             for _ in range(3):
                 # M6.9（WO-20260816-39）：决策轮只输出 tool_calls/简短判断，num_predict 收紧
-                # ≤40 显著降低决策生成耗时（基线『搜新闻』29.3s → ≤15s 目标）
-                resp = self._call_ollama_with_tools(stage1, tools, max_tokens=40)
+                # ≤30 显著降低决策生成耗时（基线『搜新闻』29.3s → ≤15s 目标）
+                resp = self._call_ollama_with_tools(stage1, tools, max_tokens=30)
                 tool_calls = resp.get("tool_calls")
                 if not tool_calls:
                     if not used_any:
@@ -1028,10 +1028,10 @@ class PersonaAgent:
                     {"role": "user", "content": user_input},
                 ]
             try:
-                # M6.9（WO-20260816-39）：阶段 2 人设回复默认 num_predict 上限 150
+                # M6.9（WO-20260816-39）：阶段 2 人设回复默认 num_predict 上限 130
                 # （文本链路不传 max_tokens 时，防止 7B 长回复拖慢全链路；
                 # 零编造由代码层兜底保证，不依赖生成长度）
-                reply = self._call_ollama(msgs2, max_tokens if max_tokens else 150)
+                reply = self._call_ollama(msgs2, max_tokens if max_tokens else 130)
             except Exception:
                 # M6.2：工具已执行，阶段 2 回复失败——返回 (None, True, True)，
                 # 调用方用安全兜底文案，绝不回退关键词路由（避免重复执行）。
@@ -1056,7 +1056,7 @@ class PersonaAgent:
                         {"role": "assistant", "content": reply},
                         {"role": "system", "content": rewrite_msg},
                     ]
-                    reply2 = self._call_ollama(msgs_rewrite, max_tokens if max_tokens else 150)
+                    reply2 = self._call_ollama(msgs_rewrite, max_tokens if max_tokens else 130)
                 except Exception:
                     reply2 = ""
                 if not reply2 or self._stage2_has_fabrication(reply2, true_items):
