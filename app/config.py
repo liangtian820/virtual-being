@@ -119,6 +119,15 @@ class Config:
     search_cache_ttl: int = field(
         default_factory=lambda: int(os.getenv("SEARCH_CACHE_TTL", "600"))
     )
+    # M7.1（WO-20260816-41）：LLM provider——ollama（本地，默认）| openai（云端，
+    # DeepSeek/OpenAI 兼容 /chat/completions）。切换后文本与工具调用均走对应 provider。
+    llm_provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "ollama"))
+    openai_base_url: str = field(
+        default_factory=lambda: os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
+    )
+    # API key 仅从环境变量/.env 读取，绝不落 git 与日志
+    openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
+    openai_model: str = field(default_factory=lambda: os.getenv("OPENAI_MODEL", "deepseek-chat"))
 
 
 CONFIG = Config()

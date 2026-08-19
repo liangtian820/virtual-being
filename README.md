@@ -5,7 +5,7 @@
 > **GitHub 仓库**：`https://github.com/liangtian820/virtual-being`
 > 当前为本地 git 仓库，等待首次推送（README 徽章在推送后补充）。
 
-## 当前状态：M6（打磨与展示）
+## 项目阶段：M1-M6 已完成；当前状态以知识库 `项目状态.md` 为准
 
 - ✅ M1 文本灵魂：Ollama 本地推理（qwen2.5:7b）+ 人格 Agent + 会话内记忆
 - ✅ M2 能力扩展：知识查询 + 计算能力 Agent（意图路由、人设包装）；M2.1 追加规划助手 + 日程备忘（WO-20260816-20）；M2.2 日程/规划增强：周几解析、删除/完成标记、重复提醒、规划结果保存（WO-20260816-23）
@@ -19,7 +19,7 @@
 - ✅ M5.2 Web 能力面板（WO-20260816-24）：日程面板（今日/明日列表 + 新增/完成/删除）、规划面板（已保存计划列表/删除 +
   对话内步骤卡片）、记忆面板（查看/清空带确认）；新 API `GET/POST /schedule`、`POST /schedule/{id}/done`、
   `DELETE /schedule/{id}`、`GET/POST /plans`、`DELETE /plans/{id}`
-- 🚧 M6 打磨展示：README 架构图与演示脚本（进行中）、角色一致性评测（`docs/consistency_testset.md`）、GitHub 仓库准备
+- ✅ M6 打磨展示：README 架构图、演示脚本与角色一致性评测已形成历史交付；当前状态与后续遗留以知识库 `30 · 项目/AI虚拟人物/项目状态.md` 为准
 - ✅ M6.1 LLM 工具调用（WO-20260816-29）：qwen2.5:7b 在对话中**自主调用既有能力工具**（日程增删查/完成、计划列表/保存、记忆、知识、计算），
   两阶段编排（无人设工具决策 → 人设包装回复），危机分支最高优先、工具失败回退关键词路由（原逻辑不破坏）
 - ✅ M6.3 插件化 + MCP：`ToolRegistry`（可插拔）+ Obsidian MCP 客户端（streamable-HTTP，16 个工具），启动自动注册（`MCP_SERVERS`）
@@ -34,7 +34,8 @@
   知识获取与语句（WO-20260816-36）：知识三级兜底（内置库→Wikipedia→Bing，`query_knowledge` 与关键词路由均自动降级，『XX 是什么』拿到真实搜索结果不再只是『查不到』）；知识/搜索触发词补全口语问法（『是干嘛的/是做什么的/有什么用/怎么用』）；人设卡与阶段 2 提示词自然化（安抚词轮换、不套『今天过得怎么样？我在呢』模板、工具结果用自然话转述不念清单）；
   非空结果防填充与模板句消除（WO-20260816-37）：阶段 2 解析工具真实条目数 N 并提示『只有 N 条，禁止补充任何额外条目』；回复生成后条目比对（列条目数 > N 或不含真实条目 → 强制重写一次 → 仍编造则固定如实话术『我帮你查到了：<真实条目>，就这些哦』），QA 实测真实仅 1 条编造 5 条的案例被代码层兜住；『今天过得怎么样？我在呢』『有想聊的就叫我』等模板短语代码层检测删除（7B 未遵循提示词时兜底），『你好呀』6 次采样零模板；
   记忆问答短路与条目比对宽松化（WO-20260816-38）：记忆问答且检索为空（空记忆库）→ 代码层短路固定如实话术『我这边好像没有那次的记录呢，你可以跟我说说～』不经 LLM（7B 空记忆编造不可靠，QA 实测编造『你喜欢喝咖啡』），有记忆时正常自然引用；条目比对归一化（去空白/尾斜杠/全角半角/大小写），真实条目被合理改写（如『AI 虚拟人物』→『AI虚拟人物/』）不再误判；
-  性能优化（WO-20260816-39/40）：① 知识/搜索提速——Wikipedia 超时 8s→3s、Bing 10s→(3s,6s) 快速降级，web_search/Wikipedia 按 query LRU 缓存 ~10 分钟（`data/search_cache/`，`SEARCH_CACHE_TTL` 可配），内置无命中时 Wikipedia 与 Bing **并行**取先返回（基线串行 8s+10s→并行 ≤~6s），工具决策轮 num_predict 收紧 ≤30、阶段 2 默认 ≤130（『deepseek harness是什么』38.4s→11.5s、『搜新闻』29.3s→7.2s，缓存命中 ≤5s）；② 工具调用确定性优先——日程/记忆/计算/知识/搜索强关键词意图直接走确定性路由（知识=内置→Wiki→Bing 三级兜底、搜索=联网、日程落库、记忆空短路），跳过 LLM 工具决策（『提醒我喝水』11.1s→4.1s、记忆 0.0s、计算 4.4s），仅 Obsidian 知识库保留 LLM 决策（需精确 path 参数），全部质量红线（危机优先/防假完成/零编造/无工具兜底/候选组）保留；性能证据 `docs/eval/evidence_perf_m69.json`
+  性能优化（WO-20260816-39/40）：① 知识/搜索提速——Wikipedia 超时 8s→3s、Bing 10s→(3s,6s) 快速降级，web_search/Wikipedia 按 query LRU 缓存 ~10 分钟（`data/search_cache/`，`SEARCH_CACHE_TTL` 可配），内置无命中时 Wikipedia 与 Bing **并行**取先返回（基线串行 8s+10s→并行 ≤~6s），工具决策轮 num_predict 收紧 ≤30、阶段 2 默认 ≤130（『deepseek harness是什么』38.4s→11.5s、『搜新闻』29.3s→7.2s，缓存命中 ≤5s）；② 工具调用确定性优先——日程/记忆/计算/知识/搜索强关键词意图直接走确定性路由（知识=内置→Wiki→Bing 三级兜底、搜索=联网、日程落库、记忆空短路），跳过 LLM 工具决策（『提醒我喝水』11.1s→4.1s、记忆 0.0s、计算 4.4s），仅 Obsidian 知识库保留 LLM 决策（需精确 path 参数），全部质量红线（危机优先/防假完成/零编造/无工具兜底/候选组）保留；性能证据 `docs/eval/evidence_perf_m69.json`；
+  LLM Provider（WO-20260816-41）：`LLM_PROVIDER=ollama|openai` 双 provider（本地 Ollama 默认 / DeepSeek·OpenAI 兼容云端，`OPENAI_BASE_URL`/`OPENAI_API_KEY`/`OPENAI_MODEL` 配置），文本与工具调用统一抽象（OpenAI `tool_call_id` 工具结果消息适配），语音链路自动跟随，key 只从环境变量/.env 读取
 
 ## 功能清单
 
@@ -65,6 +66,31 @@ uvicorn app.main:app --port 8000         # Web 服务
 ```
 
 要求：本机已安装并启动 [Ollama](https://ollama.com)，已拉取 `qwen2.5:7b`。
+
+### LLM Provider（M7.1，WO-20260816-41）：本地 Ollama 默认 / 云端 DeepSeek·OpenAI 可切换
+
+默认 `LLM_PROVIDER=ollama`（本地 qwen2.5:7b，文本与工具调用均走 `/api/chat`，零改动）。切换云端：
+
+```powershell
+# .env（gitignored）中配置：
+LLM_PROVIDER=openai
+OPENAI_BASE_URL=https://api.deepseek.com/v1   # DeepSeek 兼容端点（默认，实测可达）；OpenAI 官方改 https://api.openai.com/v1
+OPENAI_API_KEY=sk-xxxx                          # 真实 key 只放 .env，绝不提交 git/日志
+OPENAI_MODEL=deepseek-chat
+```
+
+- 文本对话与 LLM 工具调用（function calling）自动走云端 `/chat/completions`（`Authorization: Bearer`）；工具结果消息按 provider 适配（OpenAI `tool_call_id` vs Ollama `name`），上层编排无感知
+- 语音链路复用 PersonaAgent，provider 自动生效（`voice_llm_model` 仅 Ollama 模式有效；云端用 `OPENAI_MODEL`）
+- 模板见 `.env.example`（key 占位）；API key 缺失时调用给出明确错误提示
+- 注：本仓库交付时未配置真实 key（`OPENAI_API_KEY` 未设置），OpenAI 分支格式已由 mock 测试覆盖（`tests/test_llm_provider.py`），真实云端调用待用户配置 key 后验证
+
+### 可信行动闭环 A1/A2
+
+- Obsidian `vault_write` / `vault_append` / `vault_patch`，以及内置 `add_schedule` / `mark_schedule_done` / `delete_schedule` / `save_plan`，首次只返回操作预览；只有同一 session 在 120 秒内回复“确认执行”才执行，确认单次有效。
+- `vault_delete` / `vault_move` / `vault_copy` / `command_execute` 不暴露给 LLM，并在执行边界再次拒绝。
+- 工具结果按不可信数据处理，不进入高权限 system 消息；每次请求只允许一轮带 tools 的决策，结果仅供无工具阶段 2 转述。
+- SQLite 动作审计只保存 action/session/参数哈希、目标摘要、状态与时间，不保存完整正文参数；`pending → running` 原子 claim 后按 at-most-once 执行，`running` 不自动重试。
+- 待确认参数当前仍保存在单进程内存中，服务重启即失效；多进程部署前需改为共享 TTL 存储。REST 日程/计划直写接口不在本迭代确认范围内。
 
 ### Web 聊天界面（M5）
 

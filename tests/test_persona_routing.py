@@ -16,6 +16,7 @@ from app.agents.persona_agent import (
     is_schedule_query,
 )
 from app.memory.long_term_memory import LongTermMemory
+from app.tools.action_audit import ActionAuditStore
 
 # ---------------------------------------------------------------- 意图检测
 
@@ -37,17 +38,24 @@ def test_planning_intent_miss() -> None:
 def test_schedule_intent_hit() -> None:
     """日程意图应被识别（添加与查询）。"""
     for text in ("提醒我明天下午 3 点喝水", "帮我记一下明天开会", "我今天有什么安排",
-                 "我的日程", "待办有哪些", "下午 3 点提醒我喝水", "明天早上 8 点叫我起床"):
+                 "我的日程", "待办有哪些", "下午 3 点提醒我喝水", "明天早上 8 点叫我起床",
+                 "删掉明天下午的提醒", "今天喝水的提醒完成了"):
         assert is_schedule_query(text), f"{text!r} 应命中日程意图"
+    assert not is_schedule_query("作业做完了")
 
 
 def test_schedule_lookup_detection() -> None:
     """查询 vs 添加应可区分。"""
     assert is_schedule_lookup("我今天有什么安排")
     assert is_schedule_lookup("我的日程")
+    assert is_schedule_lookup("我的待办")
     assert is_schedule_lookup("待办有哪些")
+    assert is_schedule_lookup("待办列表")
     assert not is_schedule_lookup("提醒我明天下午 3 点喝水")
     assert not is_schedule_lookup("帮我记一下明天开会")
+    assert not is_schedule_lookup("帮我记一下待办：买菜")
+    assert not is_schedule_lookup("删除明天的待办")
+    assert not is_schedule_lookup("标记完成今天的待办")
 
 
 def test_memory_intent_hit() -> None:
@@ -102,7 +110,10 @@ class _FakeScheduler:
 def _capture(monkeypatch, tmp_path) -> tuple:
     """构造 PersonaAgent（注入隔离记忆库 + mock LLM），返回 (agent, store, captured)。"""
     store = LongTermMemory(db_path=str(tmp_path / "route.db"))
-    agent = PersonaAgent(long_memory=store)
+    agent = PersonaAgent(
+        long_memory=store,
+        action_audit=ActionAuditStore(str(tmp_path / "action-audit.db")),
+    )
     captured: dict = {}
 
     def fake_call(messages, max_tokens=None):
@@ -148,20 +159,21 @@ def test_planning_route_failure(monkeypatch, tmp_path) -> None:
 
 
 def test_schedule_add_route_confirms(monkeypatch, tmp_path) -> None:
-    """『明天下午 3 点提醒我喝水』→ 注入 [日程已添加] 并回显日期/时间/事项。"""
+    """A2：确定性日程添加先确认，确认后才调用 handler。"""
     agent, store, captured = _capture(monkeypatch, tmp_path)
     agent._scheduler = _FakeScheduler()
     try:
-        agent.chat("明天下午 3 点提醒我喝水", session_id="sched-add")
+        calls = []
+        original_add = agent._scheduler.add
+        agent._scheduler.add = lambda text: calls.append(text) or original_add(text)
+        preview, _ = agent.chat("明天下午 3 点提醒我喝水", session_id="sched-add")
+        assert calls == []
+        assert "尚未执行" in preview and "add_schedule" in preview
+        done, _ = agent.chat("确认执行", session_id="sched-add")
+        assert calls == ["明天下午 3 点提醒我喝水"]
+        assert "确认已执行" in done
     finally:
         store.close()
-    sys_msgs = captured["sys"]
-    assert any("[日程已添加]" in m["content"] for m in sys_msgs), "应命中日程添加注入"
-    sched_msg = next(m["content"] for m in sys_msgs if "[日程已添加]" in m["content"])
-    assert "日期：2026-08-17" in sched_msg
-    assert "时间：15:00" in sched_msg
-    assert "事项：喝水" in sched_msg
-    assert "回显日期、时间、事项" in sched_msg
 
 
 def test_schedule_lookup_route_lists(monkeypatch, tmp_path) -> None:

@@ -6,7 +6,7 @@ tools schema 列表干脆不调用任何工具（复现确认：无 tool_calls�
 只把候选组的 schema 交给 LLM 决策（每组 ≤8），候选未命中 → 回退现有关键词路由。
 
 设计原则（总控修复方向 + 角色必守规则）：
-- 不删除/不降级任何工具：26 个工具全部保留在注册表，只是决策时按组裁剪；
+- 工具仍保留在注册表，但删除/移动/复制/命令执行不进入 LLM 候选集；
 - 预筛保守：组选择只决定"本轮能给 LLM 看哪些工具"，最终是否调用仍由 LLM 决定，
   误判宁可回退关键词路由，不硬路由；
 - 写操作工具（obsidian_vault_write 等）只进写组，默认不暴露；
@@ -40,8 +40,11 @@ _OBSIDIAN_READ_TOOLS = (
 )
 _OBSIDIAN_WRITE_TOOLS = (
     "obsidian_vault_write", "obsidian_vault_append", "obsidian_vault_patch",
+    "obsidian_command_list",
+)
+_OBSIDIAN_BLOCKED_TOOLS = (
     "obsidian_vault_delete", "obsidian_vault_move", "obsidian_vault_copy",
-    "obsidian_command_list", "obsidian_command_execute",
+    "obsidian_command_execute",
 )
 
 # 组名 → 工具名元组（LLM 候选集 = 命中的组；每组 ≤8）
@@ -56,7 +59,7 @@ TOOL_GROUPS: dict = {
     "default": _DEFAULT_TOOLS,
 }
 
-# 全部组内工具名（供全量覆盖校验：26 = 10 内置 + 16 Obsidian）
+# 全部可进入候选组的工具名（危险操作仍可在注册表中存在，但不会暴露给 LLM）
 ALL_GROUP_TOOL_NAMES = frozenset(n for names in TOOL_GROUPS.values() for n in names)
 
 # 候选上限（LLM 决策 schema 数；组定义保证 ≤8，此处防御性兜底）
@@ -146,4 +149,4 @@ TOOL_RULE_HINTS: dict = {
 
 # ---------- Obsidian 工具名清单（测试/兜底用） ----------
 
-OBSIDIAN_TOOL_NAMES = _OBSIDIAN_READ_TOOLS + _OBSIDIAN_WRITE_TOOLS
+OBSIDIAN_TOOL_NAMES = _OBSIDIAN_READ_TOOLS + _OBSIDIAN_WRITE_TOOLS + _OBSIDIAN_BLOCKED_TOOLS

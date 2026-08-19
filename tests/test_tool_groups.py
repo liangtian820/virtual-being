@@ -30,6 +30,10 @@ EXPECTED_OBSIDIAN_TOOLS = {
     "obsidian_tag_list", "obsidian_command_list", "obsidian_command_execute",
     "obsidian_open_file",
 }
+BLOCKED_CANDIDATE_TOOLS = {
+    "obsidian_vault_delete", "obsidian_vault_move", "obsidian_vault_copy",
+    "obsidian_command_execute",
+}
 
 
 # ---------- 每组 ≤8 ----------
@@ -43,15 +47,14 @@ def test_every_group_size_leq_8():
 # ---------- 26 工具全量覆盖（可插拔不丢，只是决策时裁剪） ----------
 
 
-def test_all_26_tools_covered_by_groups():
+def test_dangerous_obsidian_tools_are_not_candidate_group_members():
     builtin = {s["function"]["name"] for s in get_tool_specs()}
     assert len(builtin) == 10
     assert len(EXPECTED_OBSIDIAN_TOOLS) == 16
     covered = set(ALL_GROUP_TOOL_NAMES)
     assert builtin <= covered, f"内置工具缺组内覆盖: {builtin - covered}"
-    assert EXPECTED_OBSIDIAN_TOOLS <= covered, f"Obsidian 工具缺组内覆盖: {EXPECTED_OBSIDIAN_TOOLS - covered}"
-    # 组内无多余/无遗漏：正好 26
-    assert covered == builtin | EXPECTED_OBSIDIAN_TOOLS
+    assert covered == builtin | (EXPECTED_OBSIDIAN_TOOLS - BLOCKED_CANDIDATE_TOOLS)
+    assert BLOCKED_CANDIDATE_TOOLS.isdisjoint(covered)
 
 
 def test_obsidian_tool_names_match_mcp():
@@ -91,6 +94,7 @@ def test_obsidian_write_intent_has_write_tools():
     names = select_candidate_tool_names("把这段笔记保存到知识库")
     assert "obsidian_vault_write" in names
     assert "obsidian_vault_patch" in names
+    assert BLOCKED_CANDIDATE_TOOLS.isdisjoint(names)
     assert len(names) <= 8
     # 写意图命中（与读意图区分）
     assert is_obsidian_write_query("把这段笔记保存到知识库")
